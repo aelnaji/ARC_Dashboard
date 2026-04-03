@@ -127,14 +127,20 @@ export async function POST(request: NextRequest) {
           const buffer = Buffer.from(await file.arrayBuffer());
           const pdfText = await extractPDFText(buffer);
 
-          if (!isScannedPDF(pdfText)) {
+          const isScanned = isScannedPDF(pdfText);
+          
+          if (!isScanned) {
             textContents.push(`=== ${file.name} (PDF text) ===\n${pdfText.substring(0, 25000)}`);
             processLog.push(`✅ ${file.name}: Extracted ${pdfText.length} chars (${sizeKB}KB)`);
           } else {
-            // Scanned PDF - cannot process directly as PDF
-            // Store for potential OCR if we can convert to images
+            // Scanned PDF - but let's still include the text if there's any
+            if (pdfText.length > 10) {
+              textContents.push(`=== ${file.name} (PDF extracted text - potentially scanned) ===\n${pdfText.substring(0, 25000)}`);
+              processLog.push(`⚠️ ${file.name}: Scanned PDF detected, but ${pdfText.length} chars were extracted and passed to AI.`);
+            } else {
+              processLog.push(`⚠️ ${file.name}: Scanned PDF detected with almost no extractable text.`);
+            }
             scannedPDFs.push({ buffer, name: file.name });
-            processLog.push(`⚠️ ${file.name}: Scanned PDF detected — ${pdfText.length} chars extracted. Consider converting PDF pages to images for OCR.`);
           }
         }
         // ── DOCX ──
@@ -186,18 +192,19 @@ export async function POST(request: NextRequest) {
               type: "text",
               text: `You are a precise OCR extraction engine for construction payment certificates. Extract ALL text visible in this image including:
 
-- Company/vendor names, addresses, phone numbers, fax, mobile
-- License numbers, TRN/VAT/tax registration numbers  
-- Purchase orders, sub-contract order numbers, dates
-- Project names, project numbers, references
-- ALL monetary amounts (AED values), payment figures
-- Line items: descriptions, quantities, unit rates, amounts
-- Invoice numbers, delivery notes, WIR/MIR references
-- Certificate numbers, dates, percentages
-- Names of signatories, preparers, approvers
-- Any tables, schedules, or structured data
-
-Return the extracted text in a structured format preserving the layout.`,
+    - Company/vendor names, addresses, phone numbers, fax, mobile
+    - License numbers, TRN/VAT/tax registration numbers (often 15 digits)
+    - Purchase orders (PO), sub-contract order numbers (SC/PO), dates
+    - Project names (e.g. MBZ Package 05), project numbers (e.g. RCTP0417)
+    - ALL monetary amounts (AED values), payment figures
+    - Line items: item numbers, descriptions, units, quantities, unit rates, amounts
+    - Progress % (PP1, PP2), completion percentages
+    - Invoice numbers, delivery notes, WIR/MIR references
+    - Certificate numbers, dates, period ending (e.g. November-24)
+    - Signatories, preparers, approvers and their roles
+    - Any tables, schedules, or structured data (extract as accurately as possible)
+    
+Return the extracted text in a clear, structured format. For tables, use a markdown-like table structure or clear lists. Ensure TRNs and order numbers are extracted with all digits.`,
             },
             {
               type: "image_url",
@@ -266,6 +273,7 @@ CRITICAL RULES:
 
 Return this exact JSON structure:
 {
+  "vendorType": "one of: Material, Consultant, Plant and/or Labour Only, Supply and Fix Subcon or KEEP_EXISTING",
   "vendorName": "company name or KEEP_EXISTING",
   "vendorAddr1": "address or KEEP_EXISTING",
   "vendorContact": "phone or KEEP_EXISTING",
@@ -283,6 +291,7 @@ Return this exact JSON structure:
   "paymentTerms": "payment terms or KEEP_EXISTING",
   "periodEnding": "period (e.g. November-24) or KEEP_EXISTING",
   "advancedPayment": "number or KEEP_EXISTING",
+  "paymentDueDate": "date DD-MMM-YY or KEEP_EXISTING",
   "advPay": ["to_date", "previous", "this_due"] or KEEP_EXISTING,
   "progressPay": ["to_date", "previous", "this_due"] or KEEP_EXISTING,
   "retention": ["to_date", "previous", "this_due"] or KEEP_EXISTING,
@@ -295,10 +304,20 @@ Return this exact JSON structure:
   "appDItems": [{"itemNo":"...","desc":"...","unit":"...","qty":"num","rate":"num","amount":"num","pp1":"num","pp2":"num","wirRef":"...","certified":"num"}],
   "appEItems": [{"itemNo":"...","desc":"...","lpoRef":"...","ipa1":"...","ipa2":"...","ipa3":"...","ipa4":"...","ipa5":"...","totalCertified":"num"}],
   "cvcOriginalContract": "number or KEEP_EXISTING",
+  "cvcAppendixA": "number or KEEP_EXISTING",
+  "cvcAppendixB": "number or KEEP_EXISTING",
+  "cvcContra": "number or KEEP_EXISTING",
+  "cvcContingency": "number or KEEP_EXISTING",
+  "cashFlowComments": "text or KEEP_EXISTING",
+  "cashFlowMatch": "Yes/No or KEEP_EXISTING",
+  "paymentIssueReasons": "text or KEEP_EXISTING",
   "notes": "any notes or KEEP_EXISTING",
   "preparedBy": "name or KEEP_EXISTING",
+  "preparedRole": "role or KEEP_EXISTING",
   "approvedByPM": "name or KEEP_EXISTING",
-  "checkedByCostControl": "name or KEEP_EXISTING"
+  "checkedByCostControl": "name or KEEP_EXISTING",
+  "projectControlsManager": "name or KEEP_EXISTING",
+  "commercialContractsManager": "name or KEEP_EXISTING"
 }
 
 IMPORTANT: If you find line items in the documents (like a bill of quantities, measurement sheet, or scope of work), extract ALL of them into appDItems. Each item should have itemNo, desc, unit, qty, rate, amount, pp2 (completion %), wirRef, and certified value.`;

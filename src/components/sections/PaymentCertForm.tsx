@@ -135,7 +135,7 @@ function SectionTitle({ children, color = "blue" }) {
 
 const ARRAY_FIELDS = ["advPay", "progressPay", "retention", "advRecovery", "contra"];
 const OBJECT_ARRAY_FIELDS = ["appAItems", "appBItems", "appDItems", "appCItems", "appEItems"];
-const SKIP_FIELDS = new Set(["vendorType", ...ARRAY_FIELDS, ...OBJECT_ARRAY_FIELDS, "operationsDirector", "internalAudit", "ceo", "preparedBy", "preparedRole", "approvedByPM", "checkedByCostControl", "projectControlsManager", "commercialContractsManager", "cashFlowMatch", "paymentIssueReasons"]);
+const SKIP_FIELDS = new Set([...ARRAY_FIELDS, ...OBJECT_ARRAY_FIELDS, "operationsDirector", "internalAudit", "ceo"]);
 
 const EMPTY_STATE = {
   vendorType: "",
