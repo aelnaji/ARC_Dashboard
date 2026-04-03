@@ -23,7 +23,8 @@ async function callNvidia(apiKey: string, baseUrl: string, model: string, messag
 async function extractPDFText(buffer: Buffer): Promise<string> {
   try {
     const pdfParseModule = await import("pdf-parse");
-    const pdfParse = pdfParseModule.default || pdfParseModule;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfParse = (pdfParseModule as any).default || pdfParseModule;
     const data = await pdfParse(buffer);
     return data.text || "";
   } catch (err) {
@@ -33,6 +34,64 @@ async function extractPDFText(buffer: Buffer): Promise<string> {
     const matches = text.match(/[\x20-\x7E\n\r\t]{15,}/g);
     if (matches) return matches.map(m => m.trim()).filter(m => m.length > 8).join("\n");
     return "";
+  }
+}
+
+// ── Helper: convert PDF pages to images using pdfjs-dist ──
+async function convertPDFToImages(buffer: Buffer, fileName: string, maxPages = 10): Promise<{ uri: string; name: string; type: string }[]> {
+  const images: { uri: string; name: string; type: string }[] = [];
+  
+  try {
+    // Dynamic import for pdfjs-dist to avoid issues with Next.js bundling
+    const pdfjsLib = await import("pdfjs-dist");
+    const { createCanvas } = await import("canvas");
+    
+    // Set the worker source (using the legacy build which doesn't require separate worker file)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfjs = (pdfjsLib as any).default || pdfjsLib;
+    
+    // Load the PDF document
+    const data = new Uint8Array(buffer);
+    const loadingTask = pdfjs.getDocument({ data });
+    const pdfDocument = await loadingTask.promise;
+    
+    const numPages = Math.min(pdfDocument.numPages, maxPages);
+    
+    // Process each page
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const page = await pdfDocument.getPage(pageNum);
+      
+      // Set scale for good quality (higher scale = better OCR)
+      const scale = 2.0;
+      const viewport = page.getViewport({ scale });
+      
+      // Create canvas
+      const canvas = createCanvas(viewport.width, viewport.height);
+      const context = canvas.getContext("2d");
+      
+      // Render PDF page to canvas
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (page as any).render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise;
+      
+      // Convert canvas to base64 PNG
+      const base64Data = canvas.toDataURL("image/png");
+      
+      images.push({
+        uri: base64Data,
+        name: `${fileName}_page_${pageNum}.png`,
+        type: "image/png",
+      });
+      
+      page.cleanup();
+    }
+    
+    return images;
+  } catch (err) {
+    console.error("PDF to image conversion error:", err);
+    throw err;
   }
 }
 
@@ -133,14 +192,9 @@ export async function POST(request: NextRequest) {
             textContents.push(`=== ${file.name} (PDF text) ===\n${pdfText.substring(0, 25000)}`);
             processLog.push(`✅ ${file.name}: Extracted ${pdfText.length} chars (${sizeKB}KB)`);
           } else {
-            // Scanned PDF - but let's still include the text if there's any
-            if (pdfText.length > 10) {
-              textContents.push(`=== ${file.name} (PDF extracted text - potentially scanned) ===\n${pdfText.substring(0, 25000)}`);
-              processLog.push(`⚠️ ${file.name}: Scanned PDF detected, but ${pdfText.length} chars were extracted and passed to AI.`);
-            } else {
-              processLog.push(`⚠️ ${file.name}: Scanned PDF detected with almost no extractable text.`);
-            }
+            // Scanned PDF detected - will convert to images for OCR
             scannedPDFs.push({ buffer, name: file.name });
+            processLog.push(`🔍 ${file.name}: Scanned PDF detected (${sizeKB}KB) — will convert to images for OCR`);
           }
         }
         // ── DOCX ──
@@ -178,7 +232,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ─── PHASE 2: OCR — Use NVIDIA vision model for images ───
+    // ─── PHASE 2A: Convert scanned PDFs to images ───
+    if (scannedPDFs.length > 0) {
+      processLog.push(`🖼️ Converting ${scannedPDFs.length} scanned PDF(s) to images...`);
+      
+      for (const pdf of scannedPDFs) {
+        try {
+          const pdfImages = await convertPDFToImages(pdf.buffer, pdf.name);
+          
+          if (pdfImages.length > 0) {
+            imageBase64List.push(...pdfImages);
+            processLog.push(`✅ ${pdf.name}: Converted to ${pdfImages.length} image(s)`);
+          } else {
+            processLog.push(`⚠️ ${pdf.name}: No images generated from conversion`);
+          }
+        } catch (conversionErr: any) {
+          processLog.push(`❌ ${pdf.name}: PDF conversion failed — ${conversionErr.message || "unknown"}`);
+        }
+      }
+    }
+
+    // ─── PHASE 2B: OCR — Use NVIDIA vision model for images ───
     let ocrText = "";
 
     if (imageBase64List.length > 0) {
@@ -186,7 +260,9 @@ export async function POST(request: NextRequest) {
 
       try {
         // Process images one at a time for better results
-        for (const img of imageBase64List) {
+        for (let i = 0; i < imageBase64List.length; i++) {
+          const img = imageBase64List[i];
+          
           const visionContent = [
             {
               type: "text",
@@ -212,7 +288,20 @@ Return the extracted text in a clear, structured format. For tables, use a markd
             },
           ];
 
-          processLog.push(`🔄 Processing ${img.name}...`);
+          // Add page number indicator for PDF pages
+          const isPdfPage = img.name.includes("_page_");
+          if (isPdfPage) {
+            const pageMatch = img.name.match(/_page_(\d+)/);
+            const pageNum = pageMatch ? pageMatch[1] : "?";
+            processLog.push(`🔄 OCR: Page ${pageNum} of ${img.name.split("_page_")[0]}...`);
+          } else {
+            processLog.push(`🔄 Processing ${img.name}...`);
+          }
+          
+          // Add small delay between requests to avoid rate limiting
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
           
           const visionResponse = await callNvidia(apiKey, baseUrl, visionModelToUse, [
             { role: "user", content: visionContent },
@@ -220,8 +309,15 @@ Return the extracted text in a clear, structured format. For tables, use a markd
 
           const imgOcrText = visionResponse.choices?.[0]?.message?.content || "";
           if (imgOcrText) {
-            ocrText += `\n\n=== OCR: ${img.name} ===\n${imgOcrText}`;
-            processLog.push(`✅ ${img.name}: OCR extracted ${imgOcrText.length} chars`);
+            if (isPdfPage) {
+              const pageMatch = img.name.match(/_page_(\d+)/);
+              const pageNum = pageMatch ? pageMatch[1] : "?";
+              ocrText += `\n\n=== OCR: ${img.name.split("_page_")[0]} — Page ${pageNum} ===\n${imgOcrText}`;
+              processLog.push(`✅ Page ${pageNum}: OCR extracted ${imgOcrText.length} chars`);
+            } else {
+              ocrText += `\n\n=== OCR: ${img.name} ===\n${imgOcrText}`;
+              processLog.push(`✅ ${img.name}: OCR extracted ${imgOcrText.length} chars`);
+            }
           } else {
             processLog.push(`⚠️ ${img.name}: OCR returned empty`);
           }
@@ -237,16 +333,7 @@ Return the extracted text in a clear, structured format. For tables, use a markd
       }
     }
 
-    // ─── PHASE 3: Handle scanned PDFs warning ───
-    if (scannedPDFs.length > 0) {
-      processLog.push(`⚠️ ${scannedPDFs.length} scanned PDF(s) detected that could not be OCR'd.`);
-      processLog.push(`💡 Tip: Convert scanned PDF pages to images (JPG/PNG) for OCR processing.`);
-      for (const pdf of scannedPDFs) {
-        processLog.push(`   - ${pdf.name}: Upload as images instead`);
-      }
-    }
-
-    // ─── PHASE 4: Extract structured certificate data via AI ───
+    // ─── PHASE 3: Extract structured certificate data via AI ───
     const allContent = textContents.join("\n\n---\n\n");
 
     if (allContent.trim().length < 20) {
