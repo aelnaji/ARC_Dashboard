@@ -211,7 +211,7 @@ export default function PaymentCertForm() {
   const [files, setFiles] = useState<{ id: string; file: File; name: string; type: string; size: number }[]>([]);
   const [exporting, setExporting] = useState(false);
   const [extracting, setExtracting] = useState(false);
-  const [extractMsg, setExtractMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [extractMsg, setExtractMsg] = useState<{ type: "success" | "error" | "warning"; text: string } | null>(null);
   const [extractLog, setExtractLog] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -311,8 +311,18 @@ export default function PaymentCertForm() {
         fetch("/api/extract-cert", { method: "POST", body: formData })
           .then(r => r.json())
           .then(data => {
+            // Check for scanned PDF warnings in the process log
+            const hasScannedPdfWarning = data.processLog?.some((log: string) => 
+              log.includes('scanned PDF') || log.includes('Scanned PDF')
+            );
+            
             if (!data.extractedData) {
-              setExtractMsg({ type: "error", text: data.warning || data.error || "AI could not extract data." });
+              // Determine if this is a warning (partial issue) or error (complete failure)
+              const isWarning = hasScannedPdfWarning && !data.error;
+              setExtractMsg({ 
+                type: isWarning ? "warning" : "error", 
+                text: data.warning || data.error || "AI could not extract data." 
+              });
               setExtractLog(data.processLog || []);
             } else {
               let uc = 0;
@@ -333,7 +343,16 @@ export default function PaymentCertForm() {
                 return next;
               });
               setExtractLog(data.processLog || []);
-              setExtractMsg({ type: "success", text: `✅ Auto-extracted ${uc} field(s) from ${mapped.length} document(s).` });
+              
+              // Show warning if scanned PDFs were detected, otherwise success
+              if (hasScannedPdfWarning) {
+                setExtractMsg({ 
+                  type: "warning", 
+                  text: `✅ Extracted ${uc} field(s), but some scanned PDFs could not be processed. Convert scanned PDFs to images for full OCR.` 
+                });
+              } else {
+                setExtractMsg({ type: "success", text: `✅ Auto-extracted ${uc} field(s) from ${mapped.length} document(s).` });
+              }
             }
           })
           .catch(err => setExtractMsg({ type: "error", text: `Auto-extract failed: ${err.message}` }))
@@ -435,13 +454,31 @@ export default function PaymentCertForm() {
       }
 
       if (!data.extractedData) {
-        setExtractMsg({ type: "error", text: data.warning || "AI could not extract structured data from the documents." });
+        // Check if this is just a scanned PDF warning
+        const hasScannedPdfWarning = data.processLog?.some((log: string) => 
+          log.includes('scanned PDF') || log.includes('Scanned PDF')
+        );
+        const msgType = hasScannedPdfWarning && !data.error ? "warning" : "error";
+        setExtractMsg({ type: msgType, text: data.warning || data.error || "AI could not extract structured data from the documents." });
         setExtractLog(data.processLog || []);
         setExtracting(false);
         return;
       }
 
-      applyExtractedData(data.extractedData, data.processLog || [], processFiles.length);
+      // Check for scanned PDF warnings to show appropriate message
+      const hasScannedPdfWarning = data.processLog?.some((log: string) => 
+        log.includes('scanned PDF') || log.includes('Scanned PDF')
+      );
+      
+      if (hasScannedPdfWarning) {
+        applyExtractedData(data.extractedData, data.processLog || [], processFiles.length);
+        setExtractMsg({ 
+          type: "warning", 
+          text: `✅ Extracted data successfully, but some scanned PDFs could not be OCR'd. Convert PDF pages to images for complete extraction.` 
+        });
+      } else {
+        applyExtractedData(data.extractedData, data.processLog || [], processFiles.length);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Network error occurred";
       setExtractMsg({ type: "error", text: `Extraction failed: ${msg}` });
@@ -1157,9 +1194,32 @@ export default function PaymentCertForm() {
             <div className="bg-blue-950/30 border border-blue-800 rounded-xl p-3">
               <div className="flex items-center gap-2 mb-1">
                 <Sparkles className="w-4 h-4 text-blue-400" />
-                <span className="text-blue-300 font-black text-sm">OCR & AI Extraction</span>
+                <span className="text-blue-300 font-black text-sm">AI Document Extraction</span>
               </div>
-              <p className="text-gray-400 text-xs">Upload documents (PDF, XLSX, DOCX, Images) — the system automatically runs OCR on scanned pages and uses your NVIDIA AI model to extract payment certificate fields. Configure API key in Settings.</p>
+              <p className="text-gray-400 text-xs">Upload documents to automatically extract payment certificate data using NVIDIA AI. Text-based PDFs, Excel files, and images work best. For scanned documents, convert PDF pages to images first.</p>
+            </div>
+
+            {/* File format help */}
+            <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-3">
+              <p className="text-xs font-semibold text-gray-400 mb-2">Supported Formats:</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-3.5 h-3.5 text-green-400" />
+                  <span className="text-gray-300">PDF (text-based)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-green-400" />
+                  <span className="text-gray-300">Excel (XLSX, CSV)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-3.5 h-3.5 text-green-400" />
+                  <span className="text-gray-300">Images (JPG, PNG)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <FileType className="w-3.5 h-3.5 text-yellow-400" />
+                  <span className="text-gray-300">Scanned PDFs → Convert to images</span>
+                </div>
+              </div>
             </div>
 
             {/* Upload Zone */}
@@ -1189,7 +1249,7 @@ export default function PaymentCertForm() {
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
                     <p className="text-blue-300 font-semibold text-sm">Processing Documents...</p>
-                    <p className="text-gray-500 text-xs">Running OCR and AI extraction — please wait</p>
+                    <p className="text-gray-500 text-xs">Running AI extraction — please wait</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-2">
@@ -1198,7 +1258,7 @@ export default function PaymentCertForm() {
                       Drop files here or click to upload
                     </p>
                     <p className="text-gray-500 text-xs">
-                      PDF, XLSX, DOCX, JPG, PNG — extraction starts automatically
+                      Extraction starts automatically after upload
                     </p>
                   </div>
                 )}
@@ -1231,19 +1291,40 @@ export default function PaymentCertForm() {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  {files.map(f => (
-                    <div key={f.id} className="flex items-center gap-2 bg-gray-900 rounded-lg px-3 py-2 border border-gray-700">
-                      {getFileIcon(f.type)}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-gray-200 text-xs font-medium truncate">{f.name}</p>
-                        <p className="text-gray-500 text-xs">{formatFileSize(f.size)}</p>
+                  {files.map(f => {
+                    const isPdf = f.name.toLowerCase().endsWith('.pdf');
+                    const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(f.name);
+                    const isScannedPdfWarning = isPdf && extractLog.some(log => 
+                      log.includes('Scanned PDF') && log.includes(f.name)
+                    );
+                    return (
+                      <div key={f.id} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${isScannedPdfWarning ? 'bg-yellow-950/30 border-yellow-800' : 'bg-gray-900 border-gray-700'}`}>
+                        {getFileIcon(f.type)}
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-medium truncate ${isScannedPdfWarning ? 'text-yellow-300' : 'text-gray-200'}`}>{f.name}</p>
+                          <p className="text-gray-500 text-xs">{formatFileSize(f.size)} {isPdf && <span className="text-gray-600">• PDF</span>}{isImage && <span className="text-gray-600">• Image (OCR ready)</span>}</p>
+                        </div>
+                        {isScannedPdfWarning && (
+                          <span className="text-[10px] text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded" title="Convert to JPG/PNG for OCR">Scanned PDF</span>
+                        )}
+                        <button onClick={() => removeFile(f.id)} className="text-gray-500 hover:text-red-400 transition-colors">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      <button onClick={() => removeFile(f.id)} className="text-gray-500 hover:text-red-400 transition-colors">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+                {extractLog.some(log => log.includes('scanned PDF')) && (
+                  <div className="bg-yellow-950/30 border border-yellow-800 rounded-lg p-3 mt-2">
+                    <p className="text-yellow-400 text-xs font-semibold flex items-center gap-2">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Scanned PDF Detected
+                    </p>
+                    <p className="text-yellow-300/80 text-xs mt-1">
+                      Scanned PDFs cannot be processed directly. Please convert PDF pages to JPG or PNG images and upload those instead.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1252,15 +1333,25 @@ export default function PaymentCertForm() {
               <div className={`rounded-lg p-3 border ${
                 extractMsg.type === "success"
                   ? "bg-green-950/40 border-green-800"
+                  : extractMsg.type === "warning"
+                  ? "bg-yellow-950/40 border-yellow-800"
                   : "bg-red-950/40 border-red-800"
               }`}>
                 <div className="flex items-start gap-2">
                   {extractMsg.type === "success" ? (
                     <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
+                  ) : extractMsg.type === "warning" ? (
+                    <AlertCircle className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
                   ) : (
                     <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
                   )}
-                  <p className={`text-xs ${extractMsg.type === "success" ? "text-green-300" : "text-red-300"}`}>
+                  <p className={`text-xs ${
+                    extractMsg.type === "success" 
+                      ? "text-green-300" 
+                      : extractMsg.type === "warning"
+                      ? "text-yellow-300"
+                      : "text-red-300"
+                  }`}>
                     {extractMsg.text}
                   </p>
                 </div>

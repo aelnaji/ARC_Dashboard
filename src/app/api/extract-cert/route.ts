@@ -22,10 +22,13 @@ async function callNvidia(apiKey: string, baseUrl: string, model: string, messag
 // ── Helper: extract text from PDF ──
 async function extractPDFText(buffer: Buffer): Promise<string> {
   try {
-    const pdfParse = (await import("pdf-parse")).default;
+    const pdfParseModule = await import("pdf-parse");
+    const pdfParse = pdfParseModule.default || pdfParseModule;
     const data = await pdfParse(buffer);
     return data.text || "";
-  } catch {
+  } catch (err) {
+    console.error("PDF parse error:", err);
+    // Fallback: try to extract readable text from the raw PDF bytes
     const text = buffer.toString("latin1");
     const matches = text.match(/[\x20-\x7E\n\r\t]{15,}/g);
     if (matches) return matches.map(m => m.trim()).filter(m => m.length > 8).join("\n");
@@ -45,6 +48,18 @@ function getMimeType(ext: string): string {
     gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
   };
   return mimeMap[ext] || "application/octet-stream";
+}
+
+// ── Helper: Check if text appears to be from a scanned PDF (very little extractable text) ──
+function isScannedPDF(text: string): boolean {
+  const trimmed = text.trim();
+  // If less than 100 chars of text, likely a scanned document
+  if (trimmed.length < 100) return true;
+  // If the text is mostly gibberish (random characters), likely scanned
+  const lines = trimmed.split('\n').filter(l => l.trim().length > 0);
+  const meaningfulLines = lines.filter(l => /[a-zA-Z]{3,}/.test(l));
+  if (meaningfulLines.length < 3 && lines.length > 10) return true;
+  return false;
 }
 
 export async function POST(request: NextRequest) {
@@ -83,7 +98,8 @@ export async function POST(request: NextRequest) {
 
     // ─── PHASE 1: Extract content from all files ───
     const textContents: string[] = [];
-    const imageBase64List: { uri: string; name: string }[] = [];
+    const imageBase64List: { uri: string; name: string; type: string }[] = [];
+    const scannedPDFs: { buffer: Buffer; name: string }[] = [];
 
     for (const file of files) {
       const fileExt = file.name.split(".").pop()?.toLowerCase() || "";
@@ -111,14 +127,14 @@ export async function POST(request: NextRequest) {
           const buffer = Buffer.from(await file.arrayBuffer());
           const pdfText = await extractPDFText(buffer);
 
-          if (pdfText.trim().length > 100) {
-            textContents.push(`=== ${file.name} (PDF text) ===\n${pdfText.substring(0, 15000)}`);
+          if (!isScannedPDF(pdfText)) {
+            textContents.push(`=== ${file.name} (PDF text) ===\n${pdfText.substring(0, 25000)}`);
             processLog.push(`✅ ${file.name}: Extracted ${pdfText.length} chars (${sizeKB}KB)`);
           } else {
-            // Scanned PDF — send to vision model for OCR
-            const dataUri = toBase64DataURI(buffer, "application/pdf");
-            imageBase64List.push({ uri: dataUri, name: file.name });
-            processLog.push(`🔍 ${file.name}: Scanned PDF detected — will use OCR`);
+            // Scanned PDF - cannot process directly as PDF
+            // Store for potential OCR if we can convert to images
+            scannedPDFs.push({ buffer, name: file.name });
+            processLog.push(`⚠️ ${file.name}: Scanned PDF detected — ${pdfText.length} chars extracted. Consider converting PDF pages to images for OCR.`);
           }
         }
         // ── DOCX ──
@@ -139,9 +155,10 @@ export async function POST(request: NextRequest) {
         // ── Images — send to vision model for OCR ──
         else if (["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(fileExt)) {
           const buffer = Buffer.from(await file.arrayBuffer());
-          const dataUri = toBase64DataURI(buffer, getMimeType(fileExt));
-          imageBase64List.push({ uri: dataUri, name: file.name });
-          processLog.push(`🔍 ${file.name}: Image — will use OCR (${sizeKB}KB)`);
+          const mimeType = getMimeType(fileExt);
+          const dataUri = toBase64DataURI(buffer, mimeType);
+          imageBase64List.push({ uri: dataUri, name: file.name, type: mimeType });
+          processLog.push(`🔍 ${file.name}: Image queued for OCR (${sizeKB}KB)`);
         }
         // ── Text / JSON ──
         else {
@@ -155,19 +172,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ─── PHASE 2: OCR — Use NVIDIA vision model for images/scanned docs ───
+    // ─── PHASE 2: OCR — Use NVIDIA vision model for images ───
     let ocrText = "";
 
     if (imageBase64List.length > 0) {
       processLog.push(`👁️ Running OCR on ${imageBase64List.length} image(s) via ${visionModelToUse}...`);
 
       try {
-        const visionContent: any[] = [
-          {
-            type: "text",
-            text: `You are a precise OCR extraction engine. Carefully read ALL text visible in these document images/pages.
+        // Process images one at a time for better results
+        for (const img of imageBase64List) {
+          const visionContent = [
+            {
+              type: "text",
+              text: `You are a precise OCR extraction engine for construction payment certificates. Extract ALL text visible in this image including:
 
-Extract EVERY piece of information visible including:
 - Company/vendor names, addresses, phone numbers, fax, mobile
 - License numbers, TRN/VAT/tax registration numbers  
 - Purchase orders, sub-contract order numbers, dates
@@ -179,41 +197,55 @@ Extract EVERY piece of information visible including:
 - Names of signatories, preparers, approvers
 - Any tables, schedules, or structured data
 
-Be thorough and precise. Format as structured text preserving tables and layout.`,
-          },
-        ];
+Return the extracted text in a structured format preserving the layout.`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: img.uri },
+            },
+          ];
 
-        for (const img of imageBase64List) {
-          visionContent.push({
-            type: "image_url",
-            image_url: { url: img.uri },
-          });
+          processLog.push(`🔄 Processing ${img.name}...`);
+          
+          const visionResponse = await callNvidia(apiKey, baseUrl, visionModelToUse, [
+            { role: "user", content: visionContent },
+          ], 4096);
+
+          const imgOcrText = visionResponse.choices?.[0]?.message?.content || "";
+          if (imgOcrText) {
+            ocrText += `\n\n=== OCR: ${img.name} ===\n${imgOcrText}`;
+            processLog.push(`✅ ${img.name}: OCR extracted ${imgOcrText.length} chars`);
+          } else {
+            processLog.push(`⚠️ ${img.name}: OCR returned empty`);
+          }
         }
 
-        const visionResponse = await callNVIDIA(apiKey, baseUrl, visionModelToUse, [
-          { role: "user", content: visionContent },
-        ], 4096);
-
-        ocrText = visionResponse.choices?.[0]?.message?.content || "";
         if (ocrText) {
           textContents.push(`=== OCR EXTRACTED (${imageBase64List.length} image(s)) ===\n${ocrText}`);
-          processLog.push(`✅ OCR complete: ${ocrText.length} chars extracted from ${imageBase64List.length} image(s)`);
-        } else {
-          processLog.push(`⚠️ OCR returned empty — try a different vision model (e.g. meta/llama-3.2-90b-vision-instruct)`);
+          processLog.push(`✅ OCR complete: ${ocrText.length} total chars extracted from ${imageBase64List.length} image(s)`);
         }
       } catch (ocrErr: any) {
         processLog.push(`❌ OCR failed: ${ocrErr.message || "unknown"}`);
-        processLog.push(`💡 Tip: Make sure "${visionModelToUse}" is available on your NVIDIA plan. Try "meta/llama-3.2-11b-vision-instruct" or "google/gemma-3-27b-it".`);
+        processLog.push(`💡 Tip: Make sure "${visionModelToUse}" is available on your NVIDIA plan. Try "meta/llama-3.2-11b-vision-instruct" or "microsoft/phi-4-multimodal-instruct". Model needs to support image inputs.`);
       }
     }
 
-    // ─── PHASE 3: Extract structured certificate data via AI ───
+    // ─── PHASE 3: Handle scanned PDFs warning ───
+    if (scannedPDFs.length > 0) {
+      processLog.push(`⚠️ ${scannedPDFs.length} scanned PDF(s) detected that could not be OCR'd.`);
+      processLog.push(`💡 Tip: Convert scanned PDF pages to images (JPG/PNG) for OCR processing.`);
+      for (const pdf of scannedPDFs) {
+        processLog.push(`   - ${pdf.name}: Upload as images instead`);
+      }
+    }
+
+    // ─── PHASE 4: Extract structured certificate data via AI ───
     const allContent = textContents.join("\n\n---\n\n");
 
     if (allContent.trim().length < 20) {
       return NextResponse.json({
         extractedData: null,
-        warning: "No extractable text content found in uploaded files. The documents may be empty, encrypted, or in an unsupported format.",
+        warning: "No extractable text content found in uploaded files. The documents may be empty, encrypted, scanned PDFs without OCR, or in an unsupported format.",
         processLog,
       });
     }
@@ -230,6 +262,7 @@ CRITICAL RULES:
 5. Dates should be in DD-MMM-YY format (e.g., 26-Mar-26)
 6. Extract ALL line items found in the documents with complete details
 7. For payment arrays, provide [to_date, previous, this_due] — if only one value is found, put it as this_due and use "KEEP_EXISTING" for others
+8. If you find invoice amounts, payment amounts, or financial values, extract them carefully
 
 Return this exact JSON structure:
 {
@@ -272,7 +305,7 @@ IMPORTANT: If you find line items in the documents (like a bill of quantities, m
 
     const userMessage = `I have uploaded ${files.length} document(s) for a payment certificate. Here is all the extracted content (text and OCR):
 
-${allContent.substring(0, 25000)}
+${allContent.substring(0, 30000)}
 
 Current certificate data (update only fields you can extract from above):
 ${JSON.stringify(certData, null, 2)}
@@ -280,7 +313,7 @@ ${JSON.stringify(certData, null, 2)}
 Extract payment certificate fields from the documents and return JSON.`;
 
     try {
-      const aiResponse = await callNVIDIA(apiKey, baseUrl, modelToUse, [
+      const aiResponse = await callNvidia(apiKey, baseUrl, modelToUse, [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
       ], 4096);
