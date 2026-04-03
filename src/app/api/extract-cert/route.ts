@@ -37,55 +37,30 @@ async function extractPDFText(buffer: Buffer): Promise<string> {
   }
 }
 
-// ── Helper: convert PDF pages to images using pdfjs-dist ──
+// ── Helper: convert PDF pages to images using pdf-to-img ──
 async function convertPDFToImages(buffer: Buffer, fileName: string, maxPages = 10): Promise<{ uri: string; name: string; type: string }[]> {
   const images: { uri: string; name: string; type: string }[] = [];
   
   try {
-    // Dynamic import for pdfjs-dist to avoid issues with Next.js bundling
-    const pdfjsLib = await import("pdfjs-dist");
-    const { createCanvas } = await import("canvas");
+    // Use pdf-to-img for reliable PDF to image conversion
+    const { pdf } = await import("pdf-to-img");
     
-    // Set the worker source (using the legacy build which doesn't require separate worker file)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfjs = (pdfjsLib as any).default || pdfjsLib;
+    // Convert PDF to images with high quality for OCR
+    const pages = await pdf(buffer, { scale: 2.0 });
     
-    // Load the PDF document
-    const data = new Uint8Array(buffer);
-    const loadingTask = pdfjs.getDocument({ data });
-    const pdfDocument = await loadingTask.promise;
-    
-    const numPages = Math.min(pdfDocument.numPages, maxPages);
-    
-    // Process each page
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      const page = await pdfDocument.getPage(pageNum);
+    let pageNum = 0;
+    for await (const imageBuffer of pages) {
+      pageNum++;
+      if (pageNum > maxPages) break;
       
-      // Set scale for good quality (higher scale = better OCR)
-      const scale = 2.0;
-      const viewport = page.getViewport({ scale });
-      
-      // Create canvas
-      const canvas = createCanvas(viewport.width, viewport.height);
-      const context = canvas.getContext("2d");
-      
-      // Render PDF page to canvas
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (page as any).render({
-        canvasContext: context,
-        viewport: viewport,
-      }).promise;
-      
-      // Convert canvas to base64 PNG
-      const base64Data = canvas.toDataURL("image/png");
+      // Convert to base64 data URI
+      const base64Data = `data:image/png;base64,${imageBuffer.toString("base64")}`;
       
       images.push({
         uri: base64Data,
         name: `${fileName}_page_${pageNum}.png`,
         type: "image/png",
       });
-      
-      page.cleanup();
     }
     
     return images;
