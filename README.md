@@ -15,7 +15,15 @@
 The platform leverages advanced AI capabilities to streamline payment certificate generation, supplier quotation analysis, and document validation—critical workflows for construction contracting operations in the UAE region.
 
 ---
+## Business Context
 
+This Project is a Collaboration between **Me and Jimmy Takieddine**, This was built specifically for **Al Ryum Contracting & General Transport LLC**, a leading construction company in Abu Dhabi, UAE. The dashboard addresses:
+
+- **Payment Certificate Management**: Streamlined generation and approval of contractor payment certificates
+- **Supplier Quotation Analysis**: AI-powered comparison and recommendation for material suppliers
+- **Document Validation**: Automated OCR and extraction from scanned documents
+- **VAT Compliance**: Integrated VAT calculations for UAE regulations
+  
 ## Core Features
 
 ### 1. Dashboard Overview
@@ -266,14 +274,7 @@ ARC_Command_Centre/
 
 ---
 
-## Business Context
 
-Built specifically for **Al Ryum Contracting & General Transport LLC**, a leading construction company in Abu Dhabi, UAE. The dashboard addresses:
-
-- **Payment Certificate Management**: Streamlined generation and approval of contractor payment certificates
-- **Supplier Quotation Analysis**: AI-powered comparison and recommendation for material suppliers
-- **Document Validation**: Automated OCR and extraction from scanned documents
-- **VAT Compliance**: Integrated VAT calculations for UAE regulations
 
 ---
 
