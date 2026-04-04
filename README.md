@@ -17,7 +17,7 @@ The platform leverages advanced AI capabilities to streamline payment certificat
 ---
 ## Business Context
 
-This Project is a Collaboration between **Me and Jimmy Takieddine**, This was built specifically for **Al Ryum Contracting & General Transport LLC**, a leading construction company in Abu Dhabi, UAE. The dashboard addresses:
+ **This Project is a Collaboration between**  **Me and Jimmy Takieddine**, This was built specifically for **Al Ryum Contracting & General Transport LLC**, a leading construction company in Abu Dhabi, UAE. The dashboard addresses:
 
 - **Payment Certificate Management**: Streamlined generation and approval of contractor payment certificates
 - **Supplier Quotation Analysis**: AI-powered comparison and recommendation for material suppliers
