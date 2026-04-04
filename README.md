@@ -1,5 +1,5 @@
 # ARC Command Centrer
-
+**This Project is a Collaboration between**  **Me and Jimmy Takieddine**, This was built specifically for **Al Ryum Contracting & General Transport LLC**, a leading construction company in Abu Dhabi, UAE.
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-16.1-black?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React">
@@ -7,7 +7,14 @@
   <img src="https://img.shields.io/badge/NVIDIA-NIM-76B900?style=flat-square&logo=nvidia" alt="NVIDIA NIM">
   <img src="https://img.shields.io/badge/License-GPL--3.0-orange?style=flat-square" alt="License">
 </p>
+## Business Context
 
+ The dashboard addresses:
+
+- **Payment Certificate Management**: Streamlined generation and approval of contractor payment certificates
+- **Supplier Quotation Analysis**: AI-powered comparison and recommendation for material suppliers
+- **Document Validation**: Automated OCR and extraction from scanned documents
+- **VAT Compliance**: Integrated VAT calculations for UAE regulations
 ## Overview
 
 **ARC Command Centre** is a sophisticated operational dashboard designed for **Al Ryum Contracting & General Transport LLC** (Abu Dhabi, UAE). Built with cutting-edge technologies like Next.js, Bun, and NVIDIA NIM, it serves as a centralized hub for managing construction operations, AI-powered document processing, and intelligent agent monitoring.
@@ -15,14 +22,6 @@
 The platform leverages advanced AI capabilities to streamline payment certificate generation, supplier quotation analysis, and document validation—critical workflows for construction contracting operations in the UAE region.
 
 ---
-## Business Context
-
- **This Project is a Collaboration between**  **Me and Jimmy Takieddine**, This was built specifically for **Al Ryum Contracting & General Transport LLC**, a leading construction company in Abu Dhabi, UAE. The dashboard addresses:
-
-- **Payment Certificate Management**: Streamlined generation and approval of contractor payment certificates
-- **Supplier Quotation Analysis**: AI-powered comparison and recommendation for material suppliers
-- **Document Validation**: Automated OCR and extraction from scanned documents
-- **VAT Compliance**: Integrated VAT calculations for UAE regulations
   
 ## Core Features
 
