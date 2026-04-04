@@ -1,4 +1,4 @@
-# ARC Command Centre
+# ARC Command Centrer
 
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-16.1-black?style=flat-square&logo=next.js" alt="Next.js">
