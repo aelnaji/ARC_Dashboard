@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/NVIDIA-NIM-76B900?style=flat-square&logo=nvidia" alt="NVIDIA NIM">
   <img src="https://img.shields.io/badge/License-GPL--3.0-orange?style=flat-square" alt="License">
 </p>
-## Business Context
+## Business Context**
 
  The dashboard addresses:
 
