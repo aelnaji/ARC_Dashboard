@@ -25,7 +25,11 @@ async function callNvidia(apiKey: string, baseUrl: string, model: string, messag
 // ── Helper: extract text from PDF ──
 async function extractPDFText(buffer: Buffer): Promise<string> {
   try {
-    const pdfParseModule = await import("pdf-parse");
+    // Dynamic import with ESM compatibility
+    const pdfParseModule = await import("pdf-parse").catch(() => null);
+    if (!pdfParseModule) {
+      throw new Error("pdf-parse module not found");
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pdfParse = (pdfParseModule as any).default || pdfParseModule;
     const data = await pdfParse(buffer);
@@ -149,8 +153,8 @@ function getMimeType(ext: string): string {
 // ── Helper: Check if text appears to be from a scanned PDF (very little extractable text) ──
 function isScannedPDF(text: string): boolean {
   const trimmed = text.trim();
-  // If less than 100 chars of text, likely a scanned document
-  if (trimmed.length < 100) return true;
+  // If less than 300 chars of text, likely a scanned document
+  if (trimmed.length < 300) return true;
   // If the text is mostly gibberish (random characters), likely scanned
   const lines = trimmed.split('\n').filter(l => l.trim().length > 0);
   const meaningfulLines = lines.filter(l => /[a-zA-Z]{3,}/.test(l));

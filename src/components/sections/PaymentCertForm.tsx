@@ -202,10 +202,45 @@ function getFileIcon(type: string) {
   return <FileText className="w-4 h-4 text-gray-400" />;
 }
 
-export default function PaymentCertForm() {
+export default function PaymentCertForm({ extractedData }: { extractedData?: any }) {
   const [tab, setTab] = useState(0);
   const [d, setD] = useState(INIT);
   const [saved, setSaved] = useState(false);
+
+  // Apply extracted data from parent component when received
+  useEffect(() => {
+    if (extractedData && typeof extractedData === 'object' && Object.keys(extractedData).length > 0) {
+      let updateCount = 0;
+      setD(prev => {
+        const next = { ...prev };
+        for (const [key, val] of Object.entries(extractedData)) {
+          if (SKIP_FIELDS.has(key)) continue;
+          if (val === "KEEP_EXISTING" || val === undefined || val === null) continue;
+          if (typeof val === "string" || typeof val === "number") {
+            next[key] = String(val);
+            updateCount++;
+          }
+        }
+        for (const key of ARRAY_FIELDS) {
+          if (!extractedData[key] || extractedData[key] === "KEEP_EXISTING") continue;
+          if (Array.isArray(extractedData[key]) && !extractedData[key].some((v: any) => v === "KEEP_EXISTING")) {
+            next[key] = extractedData[key].map(String);
+            updateCount++;
+          }
+        }
+        for (const key of OBJECT_ARRAY_FIELDS) {
+          if (Array.isArray(extractedData[key]) && extractedData[key].length > 0) {
+            next[key] = extractedData[key];
+            updateCount++;
+          }
+        }
+        return next;
+      });
+      if (updateCount > 0) {
+        setExtractMsg({ type: "success", text: `✅ Applied ${updateCount} extracted field(s) from certificate list.` });
+      }
+    }
+  }, [extractedData]);
 
   // Documents tab state — store actual File objects for FormData upload
   const [files, setFiles] = useState<{ id: string; file: File; name: string; type: string; size: number }[]>([]);

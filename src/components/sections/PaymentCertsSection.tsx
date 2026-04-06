@@ -45,6 +45,7 @@ export default function PaymentCertsSection() {
   const [certDescription, setCertDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [extractedData, setExtractedData] = useState<any>(null);
   const [certs, setCerts] = useState<CertRecord[]>([
     {
       id: "cert-001",
@@ -171,7 +172,7 @@ export default function PaymentCertsSection() {
 
       {viewMode === "form" ? (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-          <PaymentCertForm key={formKey} />
+          <PaymentCertForm key={formKey} extractedData={extractedData} />
         </motion.div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -243,13 +244,13 @@ export default function PaymentCertsSection() {
                       {certs.length} certificates
                     </Badge>
                     <Button
-                      onClick={() => { setFormKey(k => k + 1); setViewMode("form"); }}
+                      onClick={() => { setExtractedData(null); setFormKey(k => k + 1); setViewMode("form"); }}
                       className="h-8 text-[10px] gap-1.5 bg-green-700 hover:bg-green-600 text-white px-2.5"
                     >
                       <FilePlus className="size-3" /> New Empty Certificate
                     </Button>
                     <Button
-                      onClick={() => setViewMode("form")}
+                      onClick={() => { setExtractedData(null); setViewMode("form"); }}
                       className="h-8 text-[10px] gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-2.5"
                     >
                       <Pencil className="size-3" /> Open Certificate Editor
@@ -283,7 +284,16 @@ export default function PaymentCertsSection() {
                           {cert.status === "completed" && (
                             <Button
                               variant="ghost"
-                              onClick={() => setViewMode("form")}
+                              onClick={() => {
+                                // Create extractedData from the certificate for the form
+                                setExtractedData({
+                                  vendorName: cert.supplier,
+                                  scOrderNo: cert.poNumber,
+                                  certNo: cert.certNumber,
+                                  notes: cert.aiResponse,
+                                });
+                                setViewMode("form");
+                              }}
                               className="h-7 text-[10px] gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 px-2"
                             >
                               <Eye className="size-3" /> View
