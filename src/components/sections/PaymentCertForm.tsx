@@ -19,6 +19,18 @@ import {
   RotateCcw,
 } from "lucide-react";
 
+// Safe ID generator — works in non-secure contexts (no HTTPS / older browsers)
+function createClientId(): string {
+  if (
+    typeof window !== "undefined" &&
+    window.crypto &&
+    typeof window.crypto.randomUUID === "function"
+  ) {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 const AED = v => {
   const n = parseFloat(v) || 0;
   return n.toLocaleString("en-AE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -317,7 +329,7 @@ export default function PaymentCertForm({ extractedData }: { extractedData?: any
 
   const addFiles = useCallback((newFiles: File[]) => {
     const mapped = newFiles.map(f => ({
-      id: crypto.randomUUID(),
+      id: createClientId(),
       file: f,
       name: f.name,
       type: f.type || "unknown",
