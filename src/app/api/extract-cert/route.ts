@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
+// Export maxDuration to allow up to 5 minutes for processing large documents
+export const maxDuration = 300;
+
 // ── Helper: call NVIDIA API directly ──
 async function callNvidia(apiKey: string, baseUrl: string, model: string, messages: any[], maxTokens = 4096) {
   const url = `${baseUrl || "https://integrate.api.nvidia.com/v1"}/chat/completions`;
@@ -37,33 +40,92 @@ async function extractPDFText(buffer: Buffer): Promise<string> {
   }
 }
 
-// ── Helper: convert PDF pages to images using pdf-to-img ──
-async function convertPDFToImages(buffer: Buffer, fileName: string, maxPages = 10): Promise<{ uri: string; name: string; type: string }[]> {
-  const images: { uri: string; name: string; type: string }[] = [];
+// ── Helper: Process scanned PDF iteratively (page by page) to optimize memory ──
+async function processScannedPDF(
+  buffer: Buffer,
+  fileName: string,
+  apiKey: string,
+  baseUrl: string,
+  visionModel: string,
+  processLog: string[],
+  maxPages = 20
+): Promise<string> {
+  let ocrText = "";
   
   try {
-    // Use pdf-to-img for reliable PDF to image conversion
     const { pdf } = await import("pdf-to-img");
     
-    // Convert PDF to images with high quality for OCR
-    const pages = await pdf(buffer, { scale: 2.0 });
+    // Use reduced scale (1.6 instead of 2.0) to save ~36% memory while maintaining OCR quality
+    const pages = await pdf(buffer, { scale: 1.6 });
     
     let pageNum = 0;
     for await (const imageBuffer of pages) {
       pageNum++;
-      if (pageNum > maxPages) break;
+      if (pageNum > maxPages) {
+        processLog.push(`⏹️ ${fileName}: Reached max pages limit (${maxPages})`);
+        break;
+      }
       
-      // Convert to base64 data URI
-      const base64Data = `data:image/png;base64,${imageBuffer.toString("base64")}`;
-      
-      images.push({
-        uri: base64Data,
-        name: `${fileName}_page_${pageNum}.png`,
-        type: "image/png",
-      });
+      try {
+        processLog.push(`🔄 OCR: Page ${pageNum} of ${fileName}...`);
+        
+        // Convert to base64 data URI
+        const base64Data = `data:image/png;base64,${imageBuffer.toString("base64")}`;
+        
+        const visionContent = [
+          {
+            type: "text",
+            text: `You are a precise OCR extraction engine for construction payment certificates. Extract ALL text visible in this image including:
+
+    - Company/vendor names, addresses, phone numbers, fax, mobile
+    - License numbers, TRN/VAT/tax registration numbers (often 15 digits)
+    - Purchase orders (PO), sub-contract order numbers (SC/PO), dates
+    - Project names (e.g. MBZ Package 05), project numbers (e.g. RCTP0417)
+    - ALL monetary amounts (AED values), payment figures
+    - Line items: item numbers, descriptions, units, quantities, unit rates, amounts
+    - Progress % (PP1, PP2), completion percentages
+    - Invoice numbers, delivery notes, WIR/MIR references
+    - Certificate numbers, dates, period ending (e.g. November-24)
+    - Signatories, preparers, approvers and their roles
+    - Any tables, schedules, or structured data (extract as accurately as possible)
+    
+Return the extracted text in a clear, structured format. For tables, use a markdown-like table structure or clear lists. Ensure TRNs and order numbers are extracted with all digits.`,
+          },
+          {
+            type: "image_url",
+            image_url: { url: base64Data },
+          },
+        ];
+        
+        // Small delay between requests to avoid rate limiting
+        if (pageNum > 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+        const visionResponse = await callNvidia(apiKey, baseUrl, visionModel, [
+          { role: "user", content: visionContent },
+        ], 4096);
+        
+        const imgOcrText = visionResponse.choices?.[0]?.message?.content || "";
+        
+        if (imgOcrText) {
+          ocrText += `\n\n=== OCR: ${fileName} — Page ${pageNum} ===\n${imgOcrText}`;
+          processLog.push(`✅ Page ${pageNum}: OCR extracted ${imgOcrText.length} chars`);
+        } else {
+          processLog.push(`⚠️ Page ${pageNum}: OCR returned empty`);
+        }
+        
+        // Explicitly nullify to help garbage collection
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const _released = null;
+        
+      } catch (pageErr: any) {
+        processLog.push(`❌ Page ${pageNum}: OCR failed — ${pageErr.message || "unknown"}`);
+        // Continue with next page even if this one fails
+      }
     }
     
-    return images;
+    return ocrText;
   } catch (err) {
     console.error("PDF to image conversion error:", err);
     throw err;
@@ -94,6 +156,49 @@ function isScannedPDF(text: string): boolean {
   const meaningfulLines = lines.filter(l => /[a-zA-Z]{3,}/.test(l));
   if (meaningfulLines.length < 3 && lines.length > 10) return true;
   return false;
+}
+
+// ── Helper: Process single image with OCR ──
+async function processImageOCR(
+  buffer: Buffer,
+  fileName: string,
+  mimeType: string,
+  apiKey: string,
+  baseUrl: string,
+  visionModel: string
+): Promise<string> {
+  const dataUri = toBase64DataURI(buffer, mimeType);
+  
+  const visionContent = [
+    {
+      type: "text",
+      text: `You are a precise OCR extraction engine for construction payment certificates. Extract ALL text visible in this image including:
+
+    - Company/vendor names, addresses, phone numbers, fax, mobile
+    - License numbers, TRN/VAT/tax registration numbers (often 15 digits)
+    - Purchase orders (PO), sub-contract order numbers (SC/PO), dates
+    - Project names (e.g. MBZ Package 05), project numbers (e.g. RCTP0417)
+    - ALL monetary amounts (AED values), payment figures
+    - Line items: item numbers, descriptions, units, quantities, unit rates, amounts
+    - Progress % (PP1, PP2), completion percentages
+    - Invoice numbers, delivery notes, WIR/MIR references
+    - Certificate numbers, dates, period ending (e.g. November-24)
+    - Signatories, preparers, approvers and their roles
+    - Any tables, schedules, or structured data (extract as accurately as possible)
+    
+Return the extracted text in a clear, structured format. For tables, use a markdown-like table structure or clear lists. Ensure TRNs and order numbers are extracted with all digits.`,
+    },
+    {
+      type: "image_url",
+      image_url: { url: dataUri },
+    },
+  ];
+  
+  const visionResponse = await callNvidia(apiKey, baseUrl, visionModel, [
+    { role: "user", content: visionContent },
+  ], 4096);
+  
+  return visionResponse.choices?.[0]?.message?.content || "";
 }
 
 export async function POST(request: NextRequest) {
@@ -132,8 +237,7 @@ export async function POST(request: NextRequest) {
 
     // ─── PHASE 1: Extract content from all files ───
     const textContents: string[] = [];
-    const imageBase64List: { uri: string; name: string; type: string }[] = [];
-    const scannedPDFs: { buffer: Buffer; name: string }[] = [];
+    const imageFiles: { buffer: Buffer; name: string; mimeType: string }[] = [];
 
     for (const file of files) {
       const fileExt = file.name.split(".").pop()?.toLowerCase() || "";
@@ -167,9 +271,24 @@ export async function POST(request: NextRequest) {
             textContents.push(`=== ${file.name} (PDF text) ===\n${pdfText.substring(0, 25000)}`);
             processLog.push(`✅ ${file.name}: Extracted ${pdfText.length} chars (${sizeKB}KB)`);
           } else {
-            // Scanned PDF detected - will convert to images for OCR
-            scannedPDFs.push({ buffer, name: file.name });
-            processLog.push(`🔍 ${file.name}: Scanned PDF detected (${sizeKB}KB) — will convert to images for OCR`);
+            // Scanned PDF detected - process iteratively to optimize memory
+            processLog.push(`🔍 ${file.name}: Scanned PDF detected (${sizeKB}KB) — converting to images for OCR...`);
+            
+            const ocrResult = await processScannedPDF(
+              buffer,
+              file.name,
+              apiKey,
+              baseUrl,
+              visionModelToUse,
+              processLog
+            );
+            
+            if (ocrResult) {
+              textContents.push(`=== OCR EXTRACTED (${file.name}) ===\n${ocrResult}`);
+              processLog.push(`✅ ${file.name}: OCR complete - ${ocrResult.length} chars extracted`);
+            } else {
+              processLog.push(`⚠️ ${file.name}: No text extracted from OCR`);
+            }
           }
         }
         // ── DOCX ──
@@ -187,12 +306,11 @@ export async function POST(request: NextRequest) {
             processLog.push(`⚠️ ${file.name}: No text found in DOCX`);
           }
         }
-        // ── Images — send to vision model for OCR ──
+        // ── Images — queue for OCR ──
         else if (["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(fileExt)) {
           const buffer = Buffer.from(await file.arrayBuffer());
           const mimeType = getMimeType(fileExt);
-          const dataUri = toBase64DataURI(buffer, mimeType);
-          imageBase64List.push({ uri: dataUri, name: file.name, type: mimeType });
+          imageFiles.push({ buffer, name: file.name, mimeType });
           processLog.push(`🔍 ${file.name}: Image queued for OCR (${sizeKB}KB)`);
         }
         // ── Text / JSON ──
@@ -207,103 +325,52 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ─── PHASE 2A: Convert scanned PDFs to images ───
-    if (scannedPDFs.length > 0) {
-      processLog.push(`🖼️ Converting ${scannedPDFs.length} scanned PDF(s) to images...`);
-      
-      for (const pdf of scannedPDFs) {
-        try {
-          const pdfImages = await convertPDFToImages(pdf.buffer, pdf.name);
-          
-          if (pdfImages.length > 0) {
-            imageBase64List.push(...pdfImages);
-            processLog.push(`✅ ${pdf.name}: Converted to ${pdfImages.length} image(s)`);
-          } else {
-            processLog.push(`⚠️ ${pdf.name}: No images generated from conversion`);
-          }
-        } catch (conversionErr: any) {
-          processLog.push(`❌ ${pdf.name}: PDF conversion failed — ${conversionErr.message || "unknown"}`);
-        }
-      }
-    }
-
-    // ─── PHASE 2B: OCR — Use NVIDIA vision model for images ───
-    let ocrText = "";
-
-    if (imageBase64List.length > 0) {
-      processLog.push(`👁️ Running OCR on ${imageBase64List.length} image(s) via ${visionModelToUse}...`);
+    // ─── PHASE 2: OCR for standalone image files ───
+    if (imageFiles.length > 0) {
+      processLog.push(`👁️ Running OCR on ${imageFiles.length} image(s) via ${visionModelToUse}...`);
 
       try {
+        let ocrText = "";
+        
         // Process images one at a time for better results
-        for (let i = 0; i < imageBase64List.length; i++) {
-          const img = imageBase64List[i];
+        for (let i = 0; i < imageFiles.length; i++) {
+          const img = imageFiles[i];
           
-          const visionContent = [
-            {
-              type: "text",
-              text: `You are a precise OCR extraction engine for construction payment certificates. Extract ALL text visible in this image including:
-
-    - Company/vendor names, addresses, phone numbers, fax, mobile
-    - License numbers, TRN/VAT/tax registration numbers (often 15 digits)
-    - Purchase orders (PO), sub-contract order numbers (SC/PO), dates
-    - Project names (e.g. MBZ Package 05), project numbers (e.g. RCTP0417)
-    - ALL monetary amounts (AED values), payment figures
-    - Line items: item numbers, descriptions, units, quantities, unit rates, amounts
-    - Progress % (PP1, PP2), completion percentages
-    - Invoice numbers, delivery notes, WIR/MIR references
-    - Certificate numbers, dates, period ending (e.g. November-24)
-    - Signatories, preparers, approvers and their roles
-    - Any tables, schedules, or structured data (extract as accurately as possible)
-    
-Return the extracted text in a clear, structured format. For tables, use a markdown-like table structure or clear lists. Ensure TRNs and order numbers are extracted with all digits.`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: img.uri },
-            },
-          ];
-
-          // Add page number indicator for PDF pages
-          const isPdfPage = img.name.includes("_page_");
-          if (isPdfPage) {
-            const pageMatch = img.name.match(/_page_(\d+)/);
-            const pageNum = pageMatch ? pageMatch[1] : "?";
-            processLog.push(`🔄 OCR: Page ${pageNum} of ${img.name.split("_page_")[0]}...`);
-          } else {
+          try {
             processLog.push(`🔄 Processing ${img.name}...`);
-          }
-          
-          // Add small delay between requests to avoid rate limiting
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 200));
-          }
-          
-          const visionResponse = await callNvidia(apiKey, baseUrl, visionModelToUse, [
-            { role: "user", content: visionContent },
-          ], 4096);
-
-          const imgOcrText = visionResponse.choices?.[0]?.message?.content || "";
-          if (imgOcrText) {
-            if (isPdfPage) {
-              const pageMatch = img.name.match(/_page_(\d+)/);
-              const pageNum = pageMatch ? pageMatch[1] : "?";
-              ocrText += `\n\n=== OCR: ${img.name.split("_page_")[0]} — Page ${pageNum} ===\n${imgOcrText}`;
-              processLog.push(`✅ Page ${pageNum}: OCR extracted ${imgOcrText.length} chars`);
-            } else {
+            
+            // Small delay between requests to avoid rate limiting
+            if (i > 0) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+            
+            const imgOcrText = await processImageOCR(
+              img.buffer,
+              img.name,
+              img.mimeType,
+              apiKey,
+              baseUrl,
+              visionModelToUse
+            );
+            
+            if (imgOcrText) {
               ocrText += `\n\n=== OCR: ${img.name} ===\n${imgOcrText}`;
               processLog.push(`✅ ${img.name}: OCR extracted ${imgOcrText.length} chars`);
+            } else {
+              processLog.push(`⚠️ ${img.name}: OCR returned empty`);
             }
-          } else {
-            processLog.push(`⚠️ ${img.name}: OCR returned empty`);
+          } catch (imgErr: any) {
+            processLog.push(`❌ ${img.name}: OCR failed — ${imgErr.message || "unknown"}`);
+            // Continue with next image even if this one fails
           }
         }
 
         if (ocrText) {
-          textContents.push(`=== OCR EXTRACTED (${imageBase64List.length} image(s)) ===\n${ocrText}`);
-          processLog.push(`✅ OCR complete: ${ocrText.length} total chars extracted from ${imageBase64List.length} image(s)`);
+          textContents.push(`=== OCR EXTRACTED (${imageFiles.length} image(s)) ===\n${ocrText}`);
+          processLog.push(`✅ Image OCR complete: ${ocrText.length} total chars extracted from ${imageFiles.length} image(s)`);
         }
       } catch (ocrErr: any) {
-        processLog.push(`❌ OCR failed: ${ocrErr.message || "unknown"}`);
+        processLog.push(`❌ Image OCR failed: ${ocrErr.message || "unknown"}`);
         processLog.push(`💡 Tip: Make sure "${visionModelToUse}" is available on your NVIDIA plan. Try "meta/llama-3.2-11b-vision-instruct" or "microsoft/phi-4-multimodal-instruct". Model needs to support image inputs.`);
       }
     }
@@ -330,8 +397,16 @@ CRITICAL RULES:
 4. Percentages must be numbers only (no % sign)
 5. Dates should be in DD-MMM-YY format (e.g., 26-Mar-26)
 6. Extract ALL line items found in the documents with complete details
-7. For payment arrays, provide [to_date, previous, this_due] — if only one value is found, put it as this_due and use "KEEP_EXISTING" for others
+7. For payment arrays, provide [to_date, previous, this_due] — use actual numbers found, or "KEEP_EXISTING" if not found
 8. If you find invoice amounts, payment amounts, or financial values, extract them carefully
+9. For line items in appDItems, ensure you capture: itemNo, desc, unit, qty, rate, amount, pp1, pp2, wirRef, certified
+
+IMPORTANT: Extract ALL line items found across ALL pages of the documents. Look for:
+- Bills of quantities
+- Measurement sheets
+- Scope of work tables
+- Schedule of values
+- Any tabular data with item numbers, descriptions, quantities, and rates
 
 Return this exact JSON structure:
 {
@@ -382,22 +457,32 @@ Return this exact JSON structure:
   "commercialContractsManager": "name or KEEP_EXISTING"
 }
 
-IMPORTANT: If you find line items in the documents (like a bill of quantities, measurement sheet, or scope of work), extract ALL of them into appDItems. Each item should have itemNo, desc, unit, qty, rate, amount, pp2 (completion %), wirRef, and certified value.`;
+For appDItems, extract EVERY line item you find in the documents. These typically include:
+- Item number (e.g., 1, 2, 3 or A, B, C)
+- Description (the work description)
+- Unit (m, m2, m3, kg, nos, etc.)
+- Quantity (numeric value)
+- Rate (price per unit)
+- Amount (qty × rate)
+- PP2 (percentage complete or second progress payment %)
+- WIR Reference (Work Inspection Request number)
+- Certified amount (the certified value for payment)`;
 
     const userMessage = `I have uploaded ${files.length} document(s) for a payment certificate. Here is all the extracted content (text and OCR):
 
-${allContent.substring(0, 30000)}
+${allContent.substring(0, 100000)}
 
 Current certificate data (update only fields you can extract from above):
 ${JSON.stringify(certData, null, 2)}
 
-Extract payment certificate fields from the documents and return JSON.`;
+Extract payment certificate fields from the documents and return JSON. Focus on extracting ALL line items into appDItems array.`;
 
     try {
+      // Use increased max_tokens (8192) for large documents with many line items
       const aiResponse = await callNvidia(apiKey, baseUrl, modelToUse, [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
-      ], 4096);
+      ], 8192);
 
       const content = aiResponse.choices?.[0]?.message?.content || "";
 
@@ -437,13 +522,18 @@ Extract payment certificate fields from the documents and return JSON.`;
         .filter(([k, v]) => v !== "KEEP_EXISTING" && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0))
         .length;
 
+      // Count line items in appDItems
+      const appDItemCount = Array.isArray(extractedData.appDItems) ? extractedData.appDItems.length : 0;
+
       processLog.push(`✅ AI extracted ${fieldCount} certificate fields successfully`);
+      if (appDItemCount > 0) {
+        processLog.push(`📋 Found ${appDItemCount} line items in Appendix D`);
+      }
 
       return NextResponse.json({
         success: true,
         extractedData,
         processLog,
-        ocrTextLength: ocrText.length,
         sourceTextLength: allContent.length,
       });
     } catch (aiErr: any) {
