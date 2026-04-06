@@ -25,13 +25,8 @@ async function callNvidia(apiKey: string, baseUrl: string, model: string, messag
 // ── Helper: extract text from PDF ──
 async function extractPDFText(buffer: Buffer): Promise<string> {
   try {
-    // Dynamic import with ESM compatibility
-    const pdfParseModule = await import("pdf-parse").catch(() => null);
-    if (!pdfParseModule) {
-      throw new Error("pdf-parse module not found");
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfParse = (pdfParseModule as any).default || pdfParseModule;
+    // Import the parser module directly to bypass the test-file loader in main entry point
+    const pdfParse = (await import("pdf-parse/lib/pdf-parse.js")).default;
     const data = await pdfParse(buffer);
     return data.text || "";
   } catch (err) {
