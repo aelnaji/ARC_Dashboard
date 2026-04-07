@@ -17,7 +17,25 @@ import {
   FileType,
   ImageIcon,
   RotateCcw,
+  GripVertical,
 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 // Safe ID generator — works in non-secure contexts (no HTTPS / older browsers)
 function createClientId(): string {
@@ -234,6 +252,64 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
   const [extractLog, setExtractLog] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end for file reordering
+  const handleFilesDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setFiles((items) => {
+        const oldIndex = items.findIndex((f) => f.id === active.id);
+        const newIndex = items.findIndex((f) => f.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  // Sortable file item component
+  function SortableFileItem({ file }: { file: { id: string; name: string; type: string; size: number } }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: file.id });
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    };
+
+    const isPdf = file.name.toLowerCase().endsWith(".pdf");
+    const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.name);
+    const converting = isPdf && extractLog.some(l => (l.includes("Scanned PDF") || l.includes("Converting")) && l.includes(file.name));
+    const converted = isPdf && extractLog.some(l => l.includes("Vision OCR complete") && l.includes(file.name));
+
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${isDragging ? "opacity-50" : ""} ${converted ? "bg-blue-950/30 border-blue-800" : converting ? "bg-yellow-950/30 border-yellow-800" : "bg-gray-900 border-gray-700"}`}
+      >
+        <button type="button" {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-400">
+          <GripVertical className="w-4 h-4" />
+        </button>
+        {getFileIcon(file.type)}
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs font-medium truncate ${converted ? "text-blue-300" : converting ? "text-yellow-300" : "text-gray-200"}`}>{file.name}</p>
+          <p className="text-gray-500 text-xs">{formatFileSize(file.size)} {isPdf && <span className="text-gray-600">• PDF</span>}{isImage && <span className="text-gray-600">• Image (OCR ready)</span>}</p>
+        </div>
+        {converted && <span className="text-[10px] text-blue-400 bg-blue-900/50 px-2 py-0.5 rounded flex items-center gap-1"><Sparkles className="w-3 h-3" />Auto OCR</span>}
+        {converting && !converted && <span className="text-[10px] text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded">Scanning...</span>}
+        <button type="button" onClick={() => removeFile(file.id)} className="text-gray-500 hover:text-red-400 transition-colors"><X className="w-3.5 h-3.5" /></button>
+      </div>
+    );
+  }
 
   const settings = useAppStore(s => s.settings);
 
@@ -1036,26 +1112,15 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
                     </button>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  {files.map(f => {
-                    const isPdf = f.name.toLowerCase().endsWith(".pdf");
-                    const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(f.name);
-                    const converting = isPdf && extractLog.some(l => (l.includes("Scanned PDF") || l.includes("Converting")) && l.includes(f.name));
-                    const converted = isPdf && extractLog.some(l => l.includes("Vision OCR complete") && l.includes(f.name));
-                    return (
-                      <div key={f.id} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${converted ? "bg-blue-950/30 border-blue-800" : converting ? "bg-yellow-950/30 border-yellow-800" : "bg-gray-900 border-gray-700"}`}>
-                        {getFileIcon(f.type)}
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-medium truncate ${converted ? "text-blue-300" : converting ? "text-yellow-300" : "text-gray-200"}`}>{f.name}</p>
-                          <p className="text-gray-500 text-xs">{formatFileSize(f.size)} {isPdf && <span className="text-gray-600">• PDF</span>}{isImage && <span className="text-gray-600">• Image (OCR ready)</span>}</p>
-                        </div>
-                        {converted && <span className="text-[10px] text-blue-400 bg-blue-900/50 px-2 py-0.5 rounded flex items-center gap-1"><Sparkles className="w-3 h-3" />Auto OCR</span>}
-                        {converting && !converted && <span className="text-[10px] text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded">Scanning...</span>}
-                        <button onClick={() => removeFile(f.id)} className="text-gray-500 hover:text-red-400 transition-colors"><X className="w-3.5 h-3.5" /></button>
-                      </div>
-                    );
-                  })}
-                </div>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleFilesDragEnd}>
+                  <SortableContext items={files.map(f => f.id)} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-1">
+                      {files.map(f => (
+                        <SortableFileItem key={f.id} file={f} />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
               </div>
             )}
             {extractMsg && (
