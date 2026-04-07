@@ -1,0 +1,409 @@
+/* ============================================================
+   ARC Payment Certificate — Print / PDF Stylesheet
+   Activated only during window.print() or Export PDF
+   Mirrors the layout of PaymentCertificate_Rev06.xls
+   ============================================================ */
+
+@media print {
+
+  /* ── Reset & Page Setup ── */
+  @page {
+    size: A4 landscape;
+    margin: 12mm 10mm 12mm 10mm;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-sizing: border-box;
+  }
+
+  /* Hide everything that is not printable */
+  .no-print,
+  nav,
+  header,
+  [role="tablist"] {
+    display: none !important;
+  }
+
+  /* Show all tabs simultaneously for print */
+  .print-tab {
+    display: block !important;
+  }
+
+  /* ── Base Typography ── */
+  body,
+  .printable-cert {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: "Calibri", "Arial", sans-serif !important;
+    font-size: 8pt !important;
+  }
+
+  /* ── Page Sections — each on its own page ── */
+  .print-page {
+    page-break-after: always;
+    break-after: page;
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 4mm 2mm;
+    border: none !important;
+  }
+
+  .print-page:last-child {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* ── ARC Header ── */
+  .print-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2pt solid #1a3a6b;
+    padding-bottom: 3mm;
+    margin-bottom: 4mm;
+  }
+
+  .print-header .print-logo {
+    font-size: 22pt;
+    font-weight: 900;
+    color: #1a3a6b !important;
+    letter-spacing: 2px;
+  }
+
+  .print-header .print-title {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #1a3a6b !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .print-header .print-subtitle {
+    font-size: 8pt;
+    color: #555555 !important;
+  }
+
+  .print-confidential {
+    background: #c0392b !important;
+    color: #ffffff !important;
+    font-size: 7pt;
+    font-weight: 700;
+    text-align: center;
+    padding: 1mm 3mm;
+    border-radius: 2px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ── Section Labels ── */
+  .print-section-title {
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #1a3a6b !important;
+    border-bottom: 1pt solid #1a3a6b;
+    padding-bottom: 1mm;
+    margin: 3mm 0 2mm 0;
+  }
+
+  /* ── Info Grid (Vendor / Project details) ── */
+  .print-info-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 4mm;
+    margin-bottom: 4mm;
+  }
+
+  .print-info-block {
+    border: 0.5pt solid #cccccc;
+    border-radius: 1mm;
+    padding: 2mm;
+  }
+
+  .print-info-row {
+    display: flex !important;
+    gap: 2mm;
+    margin-bottom: 1mm;
+    font-size: 7.5pt;
+  }
+
+  .print-info-label {
+    color: #555555 !important;
+    font-weight: 600;
+    width: 32mm;
+    flex-shrink: 0;
+  }
+
+  .print-info-value {
+    color: #000000 !important;
+    font-weight: 400;
+  }
+
+  /* ── Vendor Type Radio display ── */
+  .print-vendor-type {
+    display: flex !important;
+    gap: 5mm;
+    margin-bottom: 3mm;
+    border: 0.5pt solid #cccccc;
+    padding: 2mm;
+    border-radius: 1mm;
+  }
+
+  .print-vendor-type-item {
+    display: flex !important;
+    align-items: center;
+    gap: 1mm;
+    font-size: 7.5pt;
+  }
+
+  .print-vendor-type-item.active {
+    font-weight: 700;
+    color: #1a3a6b !important;
+  }
+
+  .print-vendor-type-item .print-checkbox {
+    width: 3mm;
+    height: 3mm;
+    border: 0.5pt solid #666666;
+    display: inline-block;
+    text-align: center;
+    line-height: 3mm;
+    font-size: 7pt;
+  }
+
+  .print-vendor-type-item.active .print-checkbox {
+    border-color: #1a3a6b;
+    color: #1a3a6b !important;
+  }
+
+  /* ── Tables ── */
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+    margin-bottom: 3mm;
+  }
+
+  .print-table th {
+    background: #1a3a6b !important;
+    color: #ffffff !important;
+    font-weight: 700;
+    padding: 1.5mm 2mm;
+    border: 0.5pt solid #0d2244;
+    text-align: center;
+    font-size: 7pt;
+  }
+
+  .print-table th.left { text-align: left; }
+  .print-table th.right { text-align: right; }
+
+  .print-table td {
+    padding: 1.2mm 2mm;
+    border: 0.5pt solid #cccccc;
+    color: #000000 !important;
+    background: #ffffff !important;
+    vertical-align: middle;
+  }
+
+  .print-table tr:nth-child(even) td {
+    background: #f5f8ff !important;
+  }
+
+  .print-table td.right { text-align: right; }
+  .print-table td.center { text-align: center; }
+  .print-table td.bold { font-weight: 700; }
+
+  /* Subtotal rows */
+  .print-table tr.subtotal td {
+    background: #e8eef8 !important;
+    font-weight: 700;
+    border-top: 1pt solid #1a3a6b;
+  }
+
+  /* Deduction rows (red tint) */
+  .print-table tr.deduction td {
+    background: #fff0f0 !important;
+    color: #c0392b !important;
+  }
+
+  /* VAT row */
+  .print-table tr.vat-row td {
+    background: #fffbe6 !important;
+    font-weight: 600;
+  }
+
+  /* Grand total row */
+  .print-table tr.grand-total td {
+    background: #1a3a6b !important;
+    color: #ffffff !important;
+    font-weight: 900;
+    font-size: 8.5pt;
+    border: 1pt solid #0d2244;
+  }
+
+  /* Tfoot / summary */
+  .print-table tfoot td {
+    background: #e8eef8 !important;
+    font-weight: 700;
+    border-top: 1.5pt solid #1a3a6b;
+  }
+
+  /* ── Payment Amount Highlight Box ── */
+  .print-amount-box {
+    border: 2pt solid #1a3a6b;
+    border-radius: 2mm;
+    background: #e8eef8 !important;
+    padding: 3mm 4mm;
+    margin-top: 3mm;
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .print-amount-label {
+    font-size: 9pt;
+    font-weight: 700;
+    color: #1a3a6b !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .print-amount-value {
+    font-size: 13pt;
+    font-weight: 900;
+    color: #1a3a6b !important;
+  }
+
+  .print-footnote {
+    font-size: 6.5pt;
+    color: #888888 !important;
+    margin-top: 1.5mm;
+    font-style: italic;
+  }
+
+  /* ── Internal / Confidential Banner ── */
+  .print-internal-banner {
+    background: #c0392b !important;
+    color: #ffffff !important;
+    text-align: center;
+    padding: 2mm;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 3mm;
+    border-radius: 1mm;
+  }
+
+  /* ── CVC / Cash Flow section ── */
+  .print-two-col {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 4mm;
+    margin-bottom: 3mm;
+  }
+
+  .print-kv-row {
+    display: flex !important;
+    justify-content: space-between;
+    border-bottom: 0.3pt solid #eeeeee;
+    padding: 0.8mm 0;
+    font-size: 7.5pt;
+  }
+
+  .print-kv-row .label { color: #444444 !important; }
+  .print-kv-row .value { font-weight: 600; color: #000000 !important; }
+  .print-kv-row.total { font-weight: 700; border-top: 1pt solid #1a3a6b; border-bottom: none; }
+
+  /* ── Approval / Signature Block ── */
+  .print-approval-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4mm;
+    margin-top: 4mm;
+  }
+
+  .print-sig-block {
+    border: 0.5pt solid #cccccc;
+    border-radius: 1mm;
+    padding: 2mm;
+  }
+
+  .print-sig-block .role {
+    font-size: 7pt;
+    font-weight: 700;
+    color: #1a3a6b !important;
+    text-transform: uppercase;
+    border-bottom: 0.5pt solid #cccccc;
+    padding-bottom: 1mm;
+    margin-bottom: 1.5mm;
+  }
+
+  .print-sig-block .sig-name {
+    font-size: 8pt;
+    font-weight: 600;
+    color: #000000 !important;
+    min-height: 4mm;
+  }
+
+  .print-sig-block .sig-status {
+    font-size: 6.5pt;
+    margin-top: 1mm;
+  }
+
+  .print-sig-block .sig-status.approved { color: #27ae60 !important; font-weight: 700; }
+  .print-sig-block .sig-status.rejected { color: #c0392b !important; font-weight: 700; }
+  .print-sig-block .sig-status.pending  { color: #888888 !important; }
+
+  .print-sig-line {
+    border-bottom: 0.5pt solid #666666;
+    margin: 2mm 0 0.5mm 0;
+    min-height: 6mm;
+  }
+
+  .print-sig-date-line {
+    display: flex !important;
+    justify-content: space-between;
+    font-size: 6.5pt;
+    color: #666666 !important;
+    margin-top: 1mm;
+  }
+
+  /* ── Notes area ── */
+  .print-notes {
+    border: 0.5pt solid #cccccc;
+    border-radius: 1mm;
+    padding: 2mm;
+    min-height: 12mm;
+    font-size: 7.5pt;
+    margin-top: 2mm;
+    background: #fafafa !important;
+  }
+
+  /* ── Appendix header band ── */
+  .print-appendix-header {
+    background: #2c3e6b !important;
+    color: #ffffff !important;
+    padding: 1.5mm 3mm;
+    font-size: 9pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 2mm;
+    border-radius: 1mm;
+  }
+
+  .print-appendix-meta {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2mm;
+    margin-bottom: 2mm;
+    font-size: 7.5pt;
+  }
+
+  .print-appendix-meta span.label { color: #666666 !important; }
+  .print-appendix-meta span.value { font-weight: 600; color: #000000 !important; }
+}
