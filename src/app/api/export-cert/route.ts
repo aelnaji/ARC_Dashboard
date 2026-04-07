@@ -3,17 +3,28 @@ import * as XLSX from "xlsx";
 import path from "path";
 import fs from "fs";
 
-// Helper: set a cell value in a worksheet
+// Helper: write a value into a cell while preserving the original cell style
 function setCell(ws: any, addr: string, val: any) {
   if (val === undefined || val === null || val === "") return;
-  if (!ws[addr]) ws[addr] = { t: "s", v: "" };
-  if (typeof val === "number" || (!isNaN(parseFloat(val)) && isFinite(val) && String(val).trim() !== "")) {
+
+  // Capture any existing style before we touch the cell
+  const existingStyle = ws[addr]?.s;
+
+  if (!ws[addr]) ws[addr] = {};
+
+  if (
+    typeof val === "number" ||
+    (!isNaN(parseFloat(val)) && isFinite(val) && String(val).trim() !== "")
+  ) {
     ws[addr].v = parseFloat(val);
     ws[addr].t = "n";
   } else {
     ws[addr].v = String(val);
     ws[addr].t = "s";
   }
+
+  // Restore original style so borders / colours / number-format are kept
+  if (existingStyle) ws[addr].s = existingStyle;
 }
 
 export async function POST(request: NextRequest) {
@@ -25,15 +36,14 @@ export async function POST(request: NextRequest) {
     // Read template
     const templatePath = path.join(process.cwd(), "upload", "PaymentCertificate_Rev06.xls");
     if (!fs.existsSync(templatePath)) {
-      return NextResponse.json({ error: "Template file not found" }, { status: 500 });
+      return NextResponse.json({ error: "Template file not found at upload/PaymentCertificate_Rev06.xls" }, { status: 500 });
     }
     const templateBuffer = fs.readFileSync(templatePath);
-    const wb = XLSX.read(templateBuffer, { type: "buffer" });
+    const wb = XLSX.read(templateBuffer, { type: "buffer", cellStyles: true });
 
     // ─── Certificate_Ext (External) ───
     const ext = wb.Sheets["Certificate_Ext"];
     if (ext) {
-      // Vendor type radio (row 8)
       const vtMap: Record<string, string> = {
         "Material": "C8",
         "Consultant": "E8",
@@ -44,21 +54,18 @@ export async function POST(request: NextRequest) {
         setCell(ext, cell, d.vendorType === vt ? "✓" : "");
       }
 
-      // Vendor details (left side)
       setCell(ext, "B11", d.vendorName);
       setCell(ext, "B12", d.vendorAddr1);
       setCell(ext, "B13", d.vendorContact || "");
       setCell(ext, "B14", d.vendorMob || "");
       setCell(ext, "B15", d.vendorFax || "");
 
-      // License / TRN (left side, rows 19-23)
       setCell(ext, "C19", d.licenseNo);
       setCell(ext, "C20", d.licenseExp);
       setCell(ext, "C21", d.trnVat);
       setCell(ext, "C22", d.scOrderNo);
       setCell(ext, "C23", d.scOrderDate);
 
-      // Project info (right side)
       setCell(ext, "G10", d.project);
       setCell(ext, "G11", d.projectNo);
       setCell(ext, "G12", d.certDate);
@@ -68,60 +75,45 @@ export async function POST(request: NextRequest) {
       setCell(ext, "G16", d.advancedPayment);
       setCell(ext, "G17", d.paymentDueDate);
 
-      // Payment schedule — three columns: E=ToDate, F=Previous, G=This
-      // Advance Payment
+      // Payment Schedule
       setCell(ext, "E27", d.advPay[0] || 0);
       setCell(ext, "F27", d.advPay[1] || 0);
       setCell(ext, "G27", d.advPay[2] || 0);
-      // Progress Payment
       setCell(ext, "E29", d.progressPay[0] || 0);
       setCell(ext, "F29", d.progressPay[1] || 0);
       setCell(ext, "G29", d.progressPay[2] || 0);
-      // Gross Total
       setCell(ext, "E31", c.grossTotalToDate);
       setCell(ext, "F31", c.grossTotalPrev);
       setCell(ext, "G31", c.grossTotalThis);
-      // Retention
       setCell(ext, "E33", d.retention[0] || 0);
       setCell(ext, "F33", d.retention[1] || 0);
       setCell(ext, "G33", d.retention[2] || 0);
-      // Advance Recovery
       setCell(ext, "E35", d.advRecovery[0] || 0);
       setCell(ext, "F35", d.advRecovery[1] || 0);
       setCell(ext, "G35", d.advRecovery[2] || 0);
-      // Net Total
       setCell(ext, "E37", c.netTotalToDate);
       setCell(ext, "F37", c.netTotalPrev);
       setCell(ext, "G37", c.netTotalThis);
-      // VAT
       setCell(ext, "C39", d.vatRate);
       setCell(ext, "E39", c.vatToDate);
       setCell(ext, "F39", c.vatPrev);
       setCell(ext, "G39", c.vatThis);
-      // Total Incl VAT
       setCell(ext, "E41", c.totalToDate);
       setCell(ext, "F41", c.totalPrev);
       setCell(ext, "G41", c.totalThis);
-      // Contra Charge
       setCell(ext, "E43", d.contra[0] || 0);
       setCell(ext, "F43", d.contra[1] || 0);
       setCell(ext, "G43", d.contra[2] || 0);
-      // Contra VAT
       setCell(ext, "C45", d.vatRate);
       setCell(ext, "E45", (parseFloat(d.contra[0]) || 0) * (parseFloat(d.vatRate) || 0) / 100);
       setCell(ext, "F45", (parseFloat(d.contra[1]) || 0) * (parseFloat(d.vatRate) || 0) / 100);
       setCell(ext, "G45", (parseFloat(d.contra[2]) || 0) * (parseFloat(d.vatRate) || 0) / 100);
-      // Net Amount Payable
       setCell(ext, "E47", c.netTotalToDate + c.vatToDate);
       setCell(ext, "F47", c.netTotalPrev + c.vatPrev);
       setCell(ext, "G47", c.netTotalThis + c.vatThis);
 
-      // Notes
-      if (d.notes) {
-        setCell(ext, "B50", d.notes);
-      }
+      if (d.notes) setCell(ext, "B50", d.notes);
 
-      // Approval signatures
       if (d.operationsDirector) {
         setCell(ext, "B60", d.operationsDirector.name);
         setCell(ext, "E60", d.operationsDirector.date);
@@ -139,7 +131,6 @@ export async function POST(request: NextRequest) {
     // ─── Certificate_Int (Internal) ───
     const intSheet = wb.Sheets["Certificate_Int"];
     if (intSheet) {
-      // Same vendor type radio (row 8)
       const vtMap2: Record<string, string> = {
         "Material": "C8",
         "Consultant": "E8",
@@ -150,21 +141,18 @@ export async function POST(request: NextRequest) {
         setCell(intSheet, cell, d.vendorType === vt ? "✓" : "");
       }
 
-      // Vendor details
       setCell(intSheet, "B11", d.vendorName);
       setCell(intSheet, "B12", d.vendorAddr1);
       setCell(intSheet, "B13", d.vendorContact || "");
       setCell(intSheet, "B14", d.vendorMob || "");
       setCell(intSheet, "B15", d.vendorFax || "");
 
-      // License / TRN
       setCell(intSheet, "C19", d.licenseNo);
       setCell(intSheet, "C20", d.licenseExp);
       setCell(intSheet, "C21", d.trnVat);
       setCell(intSheet, "C22", d.scOrderNo);
       setCell(intSheet, "C23", d.scOrderDate);
 
-      // Project info
       setCell(intSheet, "G10", d.project);
       setCell(intSheet, "G11", d.projectNo);
       setCell(intSheet, "G12", d.certDate);
@@ -174,7 +162,6 @@ export async function POST(request: NextRequest) {
       setCell(intSheet, "G16", d.advancedPayment);
       setCell(intSheet, "G17", d.paymentDueDate);
 
-      // Payment schedule — same as ext
       setCell(intSheet, "E27", d.advPay[0] || 0);
       setCell(intSheet, "F27", d.advPay[1] || 0);
       setCell(intSheet, "G27", d.advPay[2] || 0);
@@ -211,7 +198,6 @@ export async function POST(request: NextRequest) {
       setCell(intSheet, "F47", c.netTotalPrev + c.vatPrev);
       setCell(intSheet, "G47", c.netTotalThis + c.vatThis);
 
-      // Cash flow (Internal specific)
       setCell(intSheet, "E59", d.cashFlowMatch === "Yes" ? "Yes" : d.cashFlowMatch === "No" ? "No" : "");
       setCell(intSheet, "E60", d.cashFlowComments);
       setCell(intSheet, "F60", d.cvcOriginalContract);
@@ -220,7 +206,6 @@ export async function POST(request: NextRequest) {
       setCell(intSheet, "F63", d.cvcContingency);
       setCell(intSheet, "F64", c.cvcTotal);
 
-      // Sign-off chain (rows 65+)
       setCell(intSheet, "B65", d.preparedBy);
       setCell(intSheet, "B66", d.approvedByPM);
       setCell(intSheet, "B67", d.checkedByCostControl);
@@ -230,10 +215,7 @@ export async function POST(request: NextRequest) {
       setCell(intSheet, "B71", d.internalAudit?.name || "");
       setCell(intSheet, "B72", d.ceo?.name || "");
 
-      // Notes
-      if (d.notes) {
-        setCell(intSheet, "B50", d.notes);
-      }
+      if (d.notes) setCell(intSheet, "B50", d.notes);
     }
 
     // ─── MainWorks (Appendix A) ───
@@ -244,7 +226,6 @@ export async function POST(request: NextRequest) {
       setCell(mw, "D6", d.vendorName);
       setCell(mw, "D8", d.project);
 
-      // Line items starting at row 13
       if (d.appAItems && d.appAItems.length > 0) {
         d.appAItems.forEach((item: any, i: number) => {
           const row = 13 + i;
@@ -257,7 +238,6 @@ export async function POST(request: NextRequest) {
           setCell(mw, `J${row}`, item.arcGross || (parseFloat(item.arcTotal) || 0) * (parseFloat(item.arcPct) || 0) / 100);
           setCell(mw, `K${row}`, item.comment || "");
         });
-        // Totals at row 30
         const totalRow = 13 + d.appAItems.length;
         const arcTotal = d.appAItems.reduce((s: number, r: any) => s + (parseFloat(r.arcTotal) || 0) * (parseFloat(r.arcPct) || 0) / 100, 0);
         setCell(mw, `J${totalRow}`, arcTotal);
@@ -331,7 +311,6 @@ export async function POST(request: NextRequest) {
           setCell(ms, `J${row}`, item.wirRef || "");
           setCell(ms, `K${row}`, item.certified || 0);
         });
-        // Totals
         const totalRow = 15 + d.appDItems.length;
         const totalCert = d.appDItems.reduce((s: number, r: any) => s + (parseFloat(r.certified) || 0), 0);
         setCell(ms, `K${totalRow}`, totalCert);
@@ -361,8 +340,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Write out as XLS (legacy format matching template)
-    const outBuffer = XLSX.write(wb, { bookType: "xls", type: "array" });
+    // Write out — keep legacy .xls format to match template
+    const outBuffer = XLSX.write(wb, { bookType: "xls", type: "array", cellStyles: true });
     const fileName = `PaymentCert_${d.scOrderNo || "draft"}_IPA${d.certNo || "draft"}.xls`;
 
     return new NextResponse(outBuffer, {
