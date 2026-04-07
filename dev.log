@@ -1,22 +1,14 @@
-▲ Next.js 16.2.2 (Turbopack)
+▲ Next.js 16.1.3 (Turbopack)
 - Local:         http://localhost:3000
-- Network:       http://192.168.1.230:3000
-✓ Ready in 215ms
-⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
- We detected multiple lockfiles and selected the directory of /home/ae/package-lock.json as the root directory.
- To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
-   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
- Detected additional lockfiles: 
-   * /home/ae/Downloads/arc-command-centre-project-v2/pnpm-lock.yaml
+- Network:       http://169.254.0.21:3000
 
+✓ Starting...
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
 
- GET / 200 in 2.2s (next.js: 1989ms, application-code: 196ms)
- GET /metrics 404 in 202ms (next.js: 167ms, application-code: 35ms)
- POST /api/nvidia 200 in 514ms (next.js: 157ms, application-code: 356ms)
- POST /api/export-cert 200 in 381ms (next.js: 334ms, application-code: 47ms)
- POST /api/extract-cert 500 in 609ms (next.js: 315ms, application-code: 294ms)
- POST /api/extract-cert 500 in 8ms (next.js: 3ms, application-code: 6ms)
- POST /api/nvidia 200 in 491ms (next.js: 1526µs, application-code: 490ms)
- POST /api/extract-cert 500 in 6ms (next.js: 2ms, application-code: 4ms)
- POST /api/extract-cert 500 in 7ms (next.js: 1780µs, application-code: 5ms)
- POST /api/extract-cert 500 in 8ms (next.js: 2ms, application-code: 6ms)
+✓ Ready in 782ms
+○ Compiling / ...
+ GET / 200 in 6.5s (compile: 6.3s, render: 265ms)
+[?25h
