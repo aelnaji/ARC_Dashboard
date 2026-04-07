@@ -149,34 +149,47 @@
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
-/* Print styles for Payment Certificate */
+/* ══════════════════════════════════════════════════════
+   PRINT STYLES — Professional A4 PDF Layout
+   The hidden #cert-print-root is the ONLY thing printed.
+══════════════════════════════════════════════════════ */
 @media print {
-  /* Hide everything except the printable area */
-  body > *:not(.printable-cert) { display: none !important; }
-  .printable-cert {
+  /* Hide the entire app UI */
+  body > *:not(#cert-print-portal) { display: none !important; }
+
+  /* Show and reset the print portal */
+  #cert-print-portal {
+    display: block !important;
     position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    overflow: auto !important;
+    inset: 0 !important;
     z-index: 99999 !important;
     background: white !important;
-    color: black !important;
-    border: none !important;
-    border-radius: 0 !important;
+    overflow: visible !important;
   }
-  .printable-cert * {
-    color: black !important;
-    border-color: #ccc !important;
-    background: white !important;
+
+  /* A4 page setup */
+  @page {
+    size: A4 portrait;
+    margin: 0;
   }
-  .printable-cert input,
-  .printable-cert textarea {
-    border: 1px solid #ccc !important;
-    background: white !important;
-    color: black !important;
+
+  /* Each .cert-page is exactly one A4 page */
+  .cert-page {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
   }
-  .printable-cert button { display: none !important; }
+  .cert-page:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* Force colour printing for dark table headers */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide the no-print marker used in the dark UI (belt & braces) */
   .no-print { display: none !important; }
 }
