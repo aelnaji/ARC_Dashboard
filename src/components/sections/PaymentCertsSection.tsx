@@ -13,6 +13,7 @@ import {
   Eye,
   Pencil,
   FilePlus,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,64 +21,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { useAppStore } from "@/lib/store";
+import { useAppStore, SavedCert } from "@/lib/store";
 import PaymentCertForm from "./PaymentCertForm";
 
-interface CertRecord {
-  id: string;
-  supplier: string;
-  poNumber: string;
-  certNumber: string;
-  amount: string;
-  status: "generating" | "completed" | "failed";
-  aiResponse?: string;
-  createdAt: string;
+function createClientId(): string {
+  if (
+    typeof window !== "undefined" &&
+    window.crypto &&
+    typeof window.crypto.randomUUID === "function"
+  ) {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 type ViewMode = "list" | "form";
 
 export default function PaymentCertsSection() {
-  const { settings } = useAppStore();
+  const { settings, savedCerts, createCert, updateCert, deleteCert } = useAppStore();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [formKey, setFormKey] = useState(0);
+  const [activeCertId, setActiveCertId] = useState<string | null>(null);
   const [supplierName, setSupplierName] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [certDescription, setCertDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [initialData, setInitialData] = useState<any>(null);
-  const [certs, setCerts] = useState<CertRecord[]>([
-    {
-      id: "cert-001",
-      supplier: "Dhilal Al Qamar Tents & Shades Ind LLC",
-      poNumber: "RCT24PORS08050",
-      certNumber: "IPA-02",
-      amount: "AED 23,625.00",
-      status: "completed",
-      aiResponse: "Payment certificate generated successfully with all supporting documents validated.",
-      createdAt: "2026-03-28T10:30:00Z",
-    },
-    {
-      id: "cert-002",
-      supplier: "Gulf Piling Contracting",
-      poNumber: "PO-2025-0038",
-      certNumber: "IPA-07",
-      amount: "AED 1,250,000",
-      status: "completed",
-      aiResponse: "Approved by Operations Director. Ready for CEO sign-off.",
-      createdAt: "2026-03-27T14:15:00Z",
-    },
-    {
-      id: "cert-003",
-      supplier: "Abu Dhabi Concreting Co.",
-      poNumber: "PO-2025-0051",
-      certNumber: "IPA-09",
-      amount: "AED 423,200",
-      status: "completed",
-      aiResponse: "VAT validation passed. All quantities verified against delivery notes.",
-      createdAt: "2026-03-25T09:00:00Z",
-    },
-  ]);
+  const [initialData, setInitialData] = useState<Record<string, unknown> | null>(null);
 
   const handleGenerate = async () => {
     if (!settings.nvidiaApiKey) {
@@ -91,18 +61,17 @@ export default function PaymentCertsSection() {
 
     setError("");
     setIsLoading(true);
-    const newCertId = `cert-${Date.now()}`;
+    const newId = createClientId();
+    const certNumber = `IPA-${String(savedCerts.length + 1).padStart(2, "0")}`;
 
-    const newCert: CertRecord = {
-      id: newCertId,
+    createCert({
+      id: newId,
       supplier: supplierName.trim(),
       poNumber: poNumber.trim(),
-      certNumber: `IPA-${String(certs.length + 1).padStart(2, "0")}`,
+      certNumber,
       amount: "Calculating...",
       status: "generating",
-      createdAt: new Date().toISOString(),
-    };
-    setCerts((prev) => [newCert, ...prev]);
+    });
 
     try {
       const res = await fetch("/api/nvidia", {
@@ -115,7 +84,8 @@ export default function PaymentCertsSection() {
           messages: [
             {
               role: "system",
-              content: "You are an AI assistant for Al Ryum Contracting & General Transport LLC in Abu Dhabi, UAE. You help generate payment certificates for construction operations.",
+              content:
+                "You are an AI assistant for Al Ryum Contracting & General Transport LLC in Abu Dhabi, UAE. You help generate payment certificates for construction operations.",
             },
             {
               role: "user",
@@ -128,51 +98,76 @@ export default function PaymentCertsSection() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to generate certificate");
       const aiText = data.choices?.[0]?.message?.content || "Certificate generated successfully.";
-      setCerts((prev) =>
-        prev.map((c) =>
-          c.id === newCertId
-            ? { ...c, status: "completed" as const, aiResponse: aiText, amount: "AED " + (Math.floor(Math.random() * 900000) + 100000).toLocaleString() }
-            : c
-        )
-      );
+      updateCert(newId, {
+        status: "completed",
+        aiResponse: aiText,
+        amount: "AED " + (Math.floor(Math.random() * 900000) + 100000).toLocaleString(),
+      });
       setSupplierName("");
       setPoNumber("");
       setCertDescription("");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      setCerts((prev) =>
-        prev.map((c) =>
-          c.id === newCertId ? { ...c, status: "failed" as const, aiResponse: message } : c
-        )
-      );
+      updateCert(newId, { status: "failed", aiResponse: message });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Open a cert record in the form editor, seeding it with its data
-  const handleViewCert = (cert: CertRecord) => {
+  const handleViewCert = (cert: SavedCert) => {
+    setActiveCertId(cert.id);
     setInitialData({
       vendorName: cert.supplier,
       scOrderNo: cert.poNumber,
       certNo: cert.certNumber.replace("IPA-", ""),
       notes: cert.aiResponse || "",
+      ...(cert.formData || {}),
     });
     setFormKey((k) => k + 1);
     setViewMode("form");
   };
 
-  // Open a blank new cert
   const handleNewEmpty = () => {
+    setActiveCertId(null);
     setInitialData(null);
     setFormKey((k) => k + 1);
     setViewMode("form");
   };
 
-  // Open editor without resetting (keeps last form state)
   const handleOpenEditor = () => {
+    setActiveCertId(null);
     setInitialData(null);
     setViewMode("form");
+  };
+
+  const handleSaveFromForm = (formData: Record<string, unknown>) => {
+    const supplier = String(formData.vendorName || formData.supplier || "Draft");
+    const poNum = String(formData.scOrderNo || formData.poNumber || "");
+    const certNo = formData.certNo ? `IPA-${formData.certNo}` : `IPA-${String(savedCerts.length + 1).padStart(2, "0")}`;
+    const amount = formData.contractValue ? `AED ${formData.contractValue}` : "AED —";
+
+    if (activeCertId) {
+      updateCert(activeCertId, {
+        supplier,
+        poNumber: poNum,
+        certNumber: certNo,
+        amount,
+        status: "completed",
+        formData,
+      });
+    } else {
+      const newId = createClientId();
+      setActiveCertId(newId);
+      createCert({
+        id: newId,
+        supplier,
+        poNumber: poNum,
+        certNumber: certNo,
+        amount,
+        status: "completed",
+        formData,
+      });
+    }
   };
 
   return (
@@ -182,7 +177,9 @@ export default function PaymentCertsSection() {
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <FileText className="size-6 text-amber-400" /> Payment Certificates
           </h1>
-          <p className="text-sm text-[oklch(0.6_0.01_260)] mt-1">AI-powered payment certificate generation and management</p>
+          <p className="text-sm text-[oklch(0.6_0.01_260)] mt-1">
+            AI-powered payment certificate generation and management
+          </p>
         </div>
         {viewMode === "form" && (
           <Button
@@ -196,13 +193,25 @@ export default function PaymentCertsSection() {
       </div>
 
       {viewMode === "form" ? (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-          <PaymentCertForm key={formKey} initialData={initialData} />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          <PaymentCertForm
+            key={formKey}
+            initialData={initialData}
+            onSave={handleSaveFromForm}
+          />
         </motion.div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Form */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+          {/* New Certificate Quick-Gen */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+          >
             <Card className="py-6 shadow-sm bg-[oklch(0.17_0.005_260)] border-[oklch(0.25_0.005_260)]">
               <CardHeader className="pb-3">
                 <CardTitle className="font-semibold text-base text-white flex items-center gap-2">
@@ -259,14 +268,19 @@ export default function PaymentCertsSection() {
           </motion.div>
 
           {/* Certificate List */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.4 }} className="lg:col-span-2">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.4 }}
+            className="lg:col-span-2"
+          >
             <Card className="py-6 shadow-sm bg-[oklch(0.17_0.005_260)] border-[oklch(0.25_0.005_260)]">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="font-semibold text-base text-white">Certificate History</CardTitle>
                   <div className="flex items-center gap-2">
                     <Badge className="text-[10px] bg-amber-500/10 text-amber-400 border-amber-500/20">
-                      {certs.length} certificates
+                      {savedCerts.length} certificates
                     </Badge>
                     <Button
                       onClick={handleNewEmpty}
@@ -284,29 +298,39 @@ export default function PaymentCertsSection() {
                 </div>
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
-                  {certs.map((cert, i) => (
-                    <motion.div
-                      key={cert.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.2 + i * 0.05, duration: 0.3 }}
-                      className="p-4 rounded-lg bg-[oklch(0.14_0.005_260)] hover:bg-[oklch(0.19_0.005_260)] transition-colors space-y-3"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          {cert.status === "completed" && <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />}
-                          {cert.status === "failed" && <AlertCircle className="size-4 text-red-400 shrink-0" />}
-                          {cert.status === "generating" && <Loader2 className="size-4 text-amber-400 shrink-0 animate-spin" />}
-                          <div>
-                            <p className="text-xs text-white font-medium">{cert.supplier}</p>
-                            <p className="text-[10px] text-[oklch(0.5_0.01_260)]">
-                              {cert.poNumber} &middot; {cert.certNumber} &middot; {cert.amount}
-                            </p>
+                {savedCerts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <FileText className="size-10 text-[oklch(0.35_0.01_260)] mb-3" />
+                    <p className="text-sm text-[oklch(0.55_0.01_260)]">No saved certificates yet.</p>
+                    <p className="text-xs text-[oklch(0.4_0.01_260)] mt-1">Generate one above or open the certificate editor.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
+                    {savedCerts.map((cert, i) => (
+                      <motion.div
+                        key={cert.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.2 + i * 0.05, duration: 0.3 }}
+                        className="p-4 rounded-lg bg-[oklch(0.14_0.005_260)] hover:bg-[oklch(0.19_0.005_260)] transition-colors space-y-3"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2">
+                            {cert.status === "completed" && <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />}
+                            {cert.status === "failed" && <AlertCircle className="size-4 text-red-400 shrink-0" />}
+                            {cert.status === "generating" && <Loader2 className="size-4 text-amber-400 shrink-0 animate-spin" />}
+                            {cert.status === "draft" && <Pencil className="size-4 text-blue-400 shrink-0" />}
+                            <div>
+                              <p className="text-xs text-white font-medium">{cert.supplier}</p>
+                              <p className="text-[10px] text-[oklch(0.5_0.01_260)]">
+                                {cert.poNumber} &middot; {cert.certNumber} &middot; {cert.amount}
+                              </p>
+                              <p className="text-[10px] text-[oklch(0.4_0.01_260)]">
+                                {new Date(cert.updatedAt).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" })}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {cert.status === "completed" && (
+                          <div className="flex items-center gap-2 shrink-0">
                             <Button
                               variant="ghost"
                               onClick={() => handleViewCert(cert)}
@@ -314,26 +338,37 @@ export default function PaymentCertsSection() {
                             >
                               <Eye className="size-3" /> View
                             </Button>
-                          )}
-                          <Badge
-                            className={`text-[10px] shrink-0 ${
-                              cert.status === "completed"
-                                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                                : cert.status === "failed"
-                                ? "bg-red-500/20 text-red-300 border-red-500/30"
-                                : "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                            }`}
-                          >
-                            {cert.status === "generating" ? "Generating..." : cert.status}
-                          </Badge>
+                            <Button
+                              variant="ghost"
+                              onClick={() => deleteCert(cert.id)}
+                              className="h-7 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/10 px-2"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                            <Badge
+                              className={`text-[10px] shrink-0 ${
+                                cert.status === "completed"
+                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                  : cert.status === "failed"
+                                  ? "bg-red-500/20 text-red-300 border-red-500/30"
+                                  : cert.status === "draft"
+                                  ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                                  : "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                              }`}
+                            >
+                              {cert.status === "generating" ? "Generating..." : cert.status}
+                            </Badge>
+                          </div>
                         </div>
-                      </div>
-                      {cert.aiResponse && (
-                        <p className="text-[11px] text-[oklch(0.6_0.01_260)] leading-relaxed pl-6">{cert.aiResponse}</p>
-                      )}
-                    </motion.div>
-                  ))}
-                </div>
+                        {cert.aiResponse && (
+                          <p className="text-[11px] text-[oklch(0.6_0.01_260)] leading-relaxed pl-6">
+                            {cert.aiResponse}
+                          </p>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
