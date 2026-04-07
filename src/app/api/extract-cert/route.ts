@@ -36,12 +36,12 @@ const OCR_PROMPT = `You are a precise OCR extraction engine for construction pay
 - Certificate numbers, dates, period ending (e.g. November-24)
 - Signatories, preparers, approvers and their roles
 - Any tables, schedules, or structured data (extract as accurately as possible)
-- Payment Schedule rows: Advance Payment, Progress Payment, Gross Total, Retention, Advance Recovery, Contra, Net Total, VAT, Total Due
-- Appendix A: Description, Contractor Total, %, Gross, ARC Total, ARC %, ARC Gross
-- Appendix B: VO numbers, descriptions, amounts
-- Appendix C: Deductions and contra charges
-- Appendix D: BOQ line items with item no, description, unit, qty, rate, amount, PP1%, PP2%, WIR ref, certified amount
-- Appendix E: IPA payment history per work package with IPA month labels
+- Payment Schedule rows: Advance Payment, Progress Payment, Gross Total, Retention, Advance Recovery, Contra, Net Total, VAT, Total Due — extract all three columns (TO DATE, PREVIOUS, THIS PAYMENT)
+- Appendix A: Description, Contractor Total Value, Contractor %, Contractor Gross, ARC Total Value, ARC %, ARC Gross, Comment
+- Appendix B: VO numbers, descriptions, Contractor Total, %, Gross, ARC Total, ARC %, ARC Gross
+- Appendix C: Deduction descriptions, Total Deduction, %, Gross Period Value
+- Appendix D: BOQ line items — item no, full description, unit, qty, rate, amount, PP1%, PP2%, WIR ref, Material Amount, Installation Amount, Certified Material, Certified Installation, Total Certified
+- Appendix E: IPA payment history — work package description, LPO ref, IPA1 amount + month, IPA2 amount + month ... IPA5 amount + month, total certified to date
 
 Return the extracted text in a clear, structured format. For tables, use a markdown-like table structure. Ensure TRNs and order numbers are extracted with all digits.`;
 
@@ -144,15 +144,174 @@ async function processImageOCR(
   return visionResponse.choices?.[0]?.message?.content || "";
 }
 
+// ── Post-processing: compute derived / calculated fields ──
+function applyCalculations(data: any): any {
+  const n = (v: any): number => {
+    if (v === "KEEP_EXISTING" || v === null || v === undefined || v === "") return 0;
+    const parsed = parseFloat(String(v).replace(/,/g, ""));
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const arr3 = (a: any): [number, number, number] => {
+    if (!Array.isArray(a) || a.length < 3) return [0, 0, 0];
+    return [n(a[0]), n(a[1]), n(a[2])];
+  };
+
+  // Payment schedule columns: [toDate=0, previous=1, thisDue=2]
+  const advPay    = arr3(data.advPay);
+  const progressPay = arr3(data.progressPay);
+  const retention = arr3(data.retention);
+  const advRecovery = arr3(data.advRecovery);
+  const contra    = arr3(data.contra);
+  const vatRate   = n(data.vatRate) || 5;
+
+  // Derive thisDue = toDate - previous if thisDue is missing
+  const fix3 = (arr: [number,number,number]): [number,number,number] => {
+    if (arr[2] === 0 && arr[0] > 0) return [arr[0], arr[1], arr[0] - arr[1]];
+    return arr;
+  };
+
+  const ap = fix3(advPay);
+  const pp = fix3(progressPay);
+  const ret = fix3(retention);
+  const ar = fix3(advRecovery);
+  const co = fix3(contra);
+
+  // grossTotal per column
+  const gross: [number,number,number] = [
+    ap[0] + pp[0],
+    ap[1] + pp[1],
+    ap[2] + pp[2],
+  ];
+
+  // netTotal per column
+  const net: [number,number,number] = [
+    gross[0] - ret[0] - ar[0] - co[0],
+    gross[1] - ret[1] - ar[1] - co[1],
+    gross[2] - ret[2] - ar[2] - co[2],
+  ];
+
+  // vatAmount per column
+  const vat: [number,number,number] = [
+    +(net[0] * vatRate / 100).toFixed(2),
+    +(net[1] * vatRate / 100).toFixed(2),
+    +(net[2] * vatRate / 100).toFixed(2),
+  ];
+
+  // totalDue per column
+  const totalDue: [number,number,number] = [
+    +(net[0] + vat[0]).toFixed(2),
+    +(net[1] + vat[1]).toFixed(2),
+    +(net[2] + vat[2]).toFixed(2),
+  ];
+
+  data.advPay       = ap;
+  data.progressPay  = pp;
+  data.retention    = ret;
+  data.advRecovery  = ar;
+  data.contra       = co;
+  data.grossTotal   = gross;
+  data.netTotal     = net;
+  data.vatAmount    = vat;
+  data.totalDue     = totalDue;
+
+  // Appendix A — compute arcGross and contractorGross if missing
+  if (Array.isArray(data.appAItems)) {
+    data.appAItems = data.appAItems.map((item: any) => {
+      const cT = n(item.contractorTotal);
+      const cP = n(item.contractorPct);
+      const aT = n(item.arcTotal);
+      const aP = n(item.arcPct);
+      return {
+        ...item,
+        contractorGross: item.contractorGross && n(item.contractorGross) !== 0
+          ? item.contractorGross
+          : +(cT * cP / 100).toFixed(2),
+        arcGross: item.arcGross && n(item.arcGross) !== 0
+          ? item.arcGross
+          : +(aT * aP / 100).toFixed(2),
+      };
+    });
+  }
+
+  // Appendix B — same
+  if (Array.isArray(data.appBItems)) {
+    data.appBItems = data.appBItems.map((item: any) => {
+      const cT = n(item.contractorTotal);
+      const cP = n(item.contractorPct);
+      const aT = n(item.arcTotal);
+      const aP = n(item.arcPct);
+      return {
+        ...item,
+        contractorGross: item.contractorGross && n(item.contractorGross) !== 0
+          ? item.contractorGross
+          : +(cT * cP / 100).toFixed(2),
+        arcGross: item.arcGross && n(item.arcGross) !== 0
+          ? item.arcGross
+          : +(aT * aP / 100).toFixed(2),
+      };
+    });
+  }
+
+  // Appendix D — compute certified, materialAmt, installationAmt if missing
+  if (Array.isArray(data.appDItems)) {
+    data.appDItems = data.appDItems.map((item: any) => {
+      const qty    = n(item.qty);
+      const rate   = n(item.rate);
+      const pp2    = n(item.pp2);
+      const amount = item.amount && n(item.amount) !== 0 ? n(item.amount) : +(qty * rate).toFixed(2);
+      const certified = item.certified && n(item.certified) !== 0
+        ? n(item.certified)
+        : +(amount * pp2 / 100).toFixed(2);
+
+      // material / installation split
+      const matAmt  = item.materialAmt  && n(item.materialAmt)  !== 0 ? n(item.materialAmt)  : 0;
+      const instAmt = item.installationAmt && n(item.installationAmt) !== 0 ? n(item.installationAmt) : 0;
+      const certMat  = item.certifiedMaterial  && n(item.certifiedMaterial)  !== 0 ? n(item.certifiedMaterial)  : 0;
+      const certInst = item.certifiedInstallation && n(item.certifiedInstallation) !== 0 ? n(item.certifiedInstallation) : 0;
+
+      return {
+        ...item,
+        amount,
+        certified,
+        materialAmt:  matAmt,
+        installationAmt: instAmt,
+        certifiedMaterial:  certMat,
+        certifiedInstallation: certInst,
+      };
+    });
+  }
+
+  // Appendix E — compute totalCertified from IPA sums if missing
+  if (Array.isArray(data.appEItems)) {
+    data.appEItems = data.appEItems.map((item: any) => {
+      const extractAmt = (val: any): number => {
+        if (!val || val === "KEEP_EXISTING") return 0;
+        const m = String(val).match(/[\d,]+\.?\d*/);
+        return m ? n(m[0]) : 0;
+      };
+      const total = ["ipa1","ipa2","ipa3","ipa4","ipa5"].reduce((s, k) => s + extractAmt(item[k]), 0);
+      return {
+        ...item,
+        totalCertified: item.totalCertified && n(item.totalCertified) !== 0
+          ? n(item.totalCertified)
+          : +total.toFixed(2),
+      };
+    });
+  }
+
+  return data;
+}
+
 export async function POST(request: NextRequest) {
   const processLog: string[] = [];
 
   try {
     const formData = await request.formData();
 
-    const apiKey = formData.get("apiKey") as string;
-    const baseUrl = formData.get("baseUrl") as string;
-    const model = formData.get("model") as string;
+    const apiKey      = formData.get("apiKey") as string;
+    const baseUrl     = formData.get("baseUrl") as string;
+    const model       = formData.get("model") as string;
     const visionModel = formData.get("visionModel") as string;
     const certDataStr = formData.get("certData") as string;
 
@@ -171,8 +330,8 @@ export async function POST(request: NextRequest) {
     let certData: any = {};
     try { certData = certDataStr ? JSON.parse(certDataStr) : {}; } catch { certData = {}; }
 
-    const modelToUse = model || "meta/llama-3.1-405b-instruct";
-    const visionModelToUse = visionModel || "meta/llama-3.2-11b-vision-instruct";
+    const modelToUse       = model        || "meta/llama-3.1-405b-instruct";
+    const visionModelToUse = visionModel  || "meta/llama-3.2-11b-vision-instruct";
 
     processLog.push(`🔧 Using model: ${modelToUse}`);
     processLog.push(`🔧 Vision model: ${visionModelToUse}`);
@@ -182,7 +341,7 @@ export async function POST(request: NextRequest) {
 
     for (const file of files) {
       const fileExt = file.name.split(".").pop()?.toLowerCase() || "";
-      const sizeKB = Math.round(file.size / 1024);
+      const sizeKB  = Math.round(file.size / 1024);
 
       try {
         // ── XLSX / XLS / CSV ──
@@ -201,19 +360,14 @@ export async function POST(request: NextRequest) {
           }
           processLog.push(`✅ ${file.name}: Parsed spreadsheet (${sizeKB}KB)`);
         }
-        // ── PDF — always send to vision model for best OCR ──
+        // ── PDF — vision OCR first, fallback to pdf-parse ──
         else if (fileExt === "pdf") {
           const buffer = Buffer.from(await file.arrayBuffer());
           processLog.push(`📄 ${file.name}: Sending to vision model for OCR (${sizeKB}KB)...`);
 
           try {
             const ocrResult = await processPDFViaVision(
-              buffer,
-              file.name,
-              apiKey,
-              baseUrl,
-              visionModelToUse,
-              processLog
+              buffer, file.name, apiKey, baseUrl, visionModelToUse, processLog
             );
 
             if (ocrResult) {
@@ -227,8 +381,8 @@ export async function POST(request: NextRequest) {
             processLog.push(`⚠️ ${file.name}: Vision OCR failed (${visionErr.message}), falling back to text extraction...`);
             try {
               const pdfParse = (await import("pdf-parse/lib/pdf-parse.js")).default;
-              const data = await pdfParse(buffer);
-              const pdfText = data.text || "";
+              const data     = await pdfParse(buffer);
+              const pdfText  = data.text || "";
               if (pdfText.trim().length > 50) {
                 textContents.push(`=== ${file.name} (PDF text fallback) ===\n${pdfText.substring(0, 25000)}`);
                 processLog.push(`✅ ${file.name}: Fallback text extraction — ${pdfText.length} chars`);
@@ -243,7 +397,7 @@ export async function POST(request: NextRequest) {
         // ── DOCX ──
         else if (fileExt === "docx") {
           const buffer = Buffer.from(await file.arrayBuffer());
-          const text = buffer.toString("utf-8");
+          const text   = buffer.toString("utf-8");
           const textMatches = text.match(/<w:t[^>]*>([^<]+)<\/w:t>/g);
           if (textMatches) {
             const docText = textMatches
@@ -257,7 +411,7 @@ export async function POST(request: NextRequest) {
         }
         // ── Images ──
         else if (["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(fileExt)) {
-          const buffer = Buffer.from(await file.arrayBuffer());
+          const buffer   = Buffer.from(await file.arrayBuffer());
           const mimeType = getMimeType(fileExt);
           processLog.push(`🔍 ${file.name}: Running image OCR (${sizeKB}KB)...`);
 
@@ -276,7 +430,7 @@ export async function POST(request: NextRequest) {
         // ── Text / JSON ──
         else {
           const buffer = await file.arrayBuffer();
-          const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+          const text   = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
           textContents.push(`=== ${file.name} ===\n${text.substring(0, 15000)}`);
           processLog.push(`✅ ${file.name}: Read as text (${sizeKB}KB)`);
         }
@@ -298,7 +452,7 @@ export async function POST(request: NextRequest) {
 
     processLog.push(`🧠 AI extracting payment certificate fields via ${modelToUse}...`);
 
-    const systemPrompt = `You are an expert data extraction AI for Al Ryum Contracting & General Transport LLC (Abu Dhabi, UAE). Your task is to extract payment certificate fields from construction documents and perform the calculations below.
+    const systemPrompt = `You are an expert data extraction AI for Al Ryum Contracting & General Transport LLC (Abu Dhabi, UAE). Extract payment certificate fields from the construction documents provided and perform all calculations listed below.
 
 CRITICAL RULES:
 1. Return ONLY valid JSON — no markdown, no code fences, no extra text
@@ -307,76 +461,90 @@ CRITICAL RULES:
 4. Percentages must be numbers only (no % sign)
 5. Dates should be in DD-MMM-YY format (e.g., 26-Mar-26)
 6. Extract ALL line items found in the documents with complete details
-7. For payment arrays, provide [to_date, previous, this_due] — if only "this_due" is found set the others to 0
-8. For appDItems, certified = qty × rate × (pp2 / 100) if certified is not explicitly stated
-9. For appAItems: arcGross = arcTotal × (arcPct / 100) if not explicitly stated; contractorGross = contractorTotal × (contractorPct / 100)
-10. For appBItems: same gross calculation as appAItems
-11. this_due for each payment array = to_date − previous (if to_date and previous are known)
+7. For payment arrays use [to_date, previous, this_due] — if only "this_due" is found set others to 0
+8. If "to_date" and "previous" are known but "this_due" is not: this_due = to_date − previous
 
-PAYMENT SCHEDULE CALCULATION RULES (apply after extraction):
-- grossTotal[col] = advPay[col] + progressPay[col]
-- netTotal[col] = grossTotal[col] − retention[col] − advRecovery[col] − contra[col]
-- vatAmount[col] = netTotal[col] × (vatRate / 100)
-- totalDue[col] = netTotal[col] + vatAmount[col]
-- If "this_due" column values are not in the document, derive: this_due = to_date − previous
+PAYMENT SCHEDULE — extract all three columns [TO DATE, PREVIOUS, THIS PAYMENT] for each row:
+- advPay         → Advance Payment row
+- progressPay    → Progress Payment row
+- retention      → Less Retention row
+- advRecovery    → Less Advance Payment Recovery row
+- contra         → Less Contra Charge/Set Off row
+(grossTotal, netTotal, vatAmount, totalDue will be computed server-side after extraction)
 
-APPENDIX D — for each line item extract:
-- itemNo, desc, unit, qty, rate, amount (= qty×rate), pp1 (supply %), pp2 (installation % or overall %), wirRef, certified
-- If pp1 and pp2 are present: certified = amount × pp2 / 100 (unless explicitly stated)
-- If only one progress % is shown, put it in pp2
+APPENDIX A — for each work package row:
+- desc, contractorTotal, contractorPct, contractorGross (= contractorTotal × contractorPct / 100), arcTotal, arcPct, arcGross (= arcTotal × arcPct / 100), comment
+
+APPENDIX B — for each variation order row:
+- voNo, desc, contractorTotal, contractorPct, contractorGross, arcTotal, arcPct, arcGross, comment
+
+APPENDIX C — for each deduction row:
+- desc, totalDeduction, pct, grossValue
+
+APPENDIX D — for each BOQ line item:
+- itemNo, desc, unit, qty, rate, amount (= qty×rate)
+- pp1 (supply/material %) and pp2 (installation/overall %)
+- wirRef (WIR or MIR reference number)
+- materialAmt (material portion of amount — 0 if not split)
+- installationAmt (installation portion of amount — 0 if not split)
+- certified (= amount × pp2 / 100 if not explicitly stated)
+- certifiedMaterial (0 if not split)
+- certifiedInstallation (0 if not split)
 
 APPENDIX E — for each work package:
 - itemNo, desc, lpoRef
-- ipa1 through ipa5: format as "AMOUNT (Month-YY)" e.g. "7500 (Nov-25)" — include the month label from the document
-- totalCertified = sum of all IPA amounts
+- ipa1 through ipa5: format as "AMOUNT (Month-YY)" e.g. "137430 (Apr-26)"
+  — include the month/period label from the document header
+  — leave as "" if that IPA column is empty
+- totalCertified = sum of all IPA amounts for this package
 
 Return this exact JSON structure:
 {
-  "vendorType": "one of: Material, Consultant, Plant and/or Labour Only, Supply and Fix Subcon or KEEP_EXISTING",
-  "vendorName": "company name or KEEP_EXISTING",
-  "vendorAddr1": "address or KEEP_EXISTING",
-  "vendorContact": "phone or KEEP_EXISTING",
-  "vendorMob": "mobile or KEEP_EXISTING",
-  "vendorFax": "fax or KEEP_EXISTING",
-  "licenseNo": "license number or KEEP_EXISTING",
-  "licenseExp": "date DD-MMM-YY or KEEP_EXISTING",
-  "trnVat": "TRN/VAT number (15 digits) or KEEP_EXISTING",
-  "scOrderNo": "SC/PO/LPO order number or KEEP_EXISTING",
-  "scOrderDate": "date DD-MMM-YY or KEEP_EXISTING",
-  "project": "project name or KEEP_EXISTING",
-  "projectNo": "project number or KEEP_EXISTING",
-  "certDate": "certificate date DD-MMM-YY or KEEP_EXISTING",
-  "certNo": "certificate/IPA number or KEEP_EXISTING",
-  "paymentTerms": "payment terms or KEEP_EXISTING",
-  "periodEnding": "period e.g. November-24 or KEEP_EXISTING",
+  "vendorType": "Material | Consultant | Plant and/or Labour Only | Supply and Fix Subcon | KEEP_EXISTING",
+  "vendorName": "string or KEEP_EXISTING",
+  "vendorAddr1": "string or KEEP_EXISTING",
+  "vendorContact": "string or KEEP_EXISTING",
+  "vendorMob": "string or KEEP_EXISTING",
+  "vendorFax": "string or KEEP_EXISTING",
+  "licenseNo": "string or KEEP_EXISTING",
+  "licenseExp": "DD-MMM-YY or KEEP_EXISTING",
+  "trnVat": "15-digit TRN or KEEP_EXISTING",
+  "scOrderNo": "string or KEEP_EXISTING",
+  "scOrderDate": "DD-MMM-YY or KEEP_EXISTING",
+  "project": "string or KEEP_EXISTING",
+  "projectNo": "string or KEEP_EXISTING",
+  "certDate": "DD-MMM-YY or KEEP_EXISTING",
+  "certNo": "string or KEEP_EXISTING",
+  "paymentTerms": "string or KEEP_EXISTING",
+  "periodEnding": "e.g. April-26 or KEEP_EXISTING",
   "advancedPayment": "number or KEEP_EXISTING",
-  "paymentDueDate": "date DD-MMM-YY or KEEP_EXISTING",
-  "advPay": ["to_date_num", "previous_num", "this_due_num"],
-  "progressPay": ["to_date_num", "previous_num", "this_due_num"],
-  "retention": ["to_date_num", "previous_num", "this_due_num"],
-  "advRecovery": ["to_date_num", "previous_num", "this_due_num"],
-  "contra": ["to_date_num", "previous_num", "this_due_num"],
-  "vatRate": "number e.g. 5 or KEEP_EXISTING",
-  "appAItems": [{"desc":"...","contractorTotal":"num","contractorPct":"num","contractorGross":"calculated num","arcTotal":"num","arcPct":"num","arcGross":"calculated num","comment":"..."}],
-  "appBItems": [{"voNo":"...","desc":"...","contractorTotal":"num","contractorPct":"num","contractorGross":"calculated num","arcTotal":"num","arcPct":"num","arcGross":"calculated num","comment":"..."}],
-  "appCItems": [{"desc":"...","totalDeduction":"num","pct":"num","grossValue":"num"}],
-  "appDItems": [{"itemNo":"...","desc":"...","unit":"...","qty":"num","rate":"num","amount":"num","pp1":"num or 0","pp2":"num","wirRef":"...","certified":"num"}],
-  "appEItems": [{"itemNo":"...","desc":"...","lpoRef":"...","ipa1":"amount (Month-YY) or empty","ipa2":"...","ipa3":"...","ipa4":"...","ipa5":"...","totalCertified":"num"}],
+  "paymentDueDate": "DD-MMM-YY or KEEP_EXISTING",
+  "advPay":      [to_date_num, previous_num, this_due_num],
+  "progressPay": [to_date_num, previous_num, this_due_num],
+  "retention":   [to_date_num, previous_num, this_due_num],
+  "advRecovery": [to_date_num, previous_num, this_due_num],
+  "contra":      [to_date_num, previous_num, this_due_num],
+  "vatRate": 5,
+  "appAItems": [{"desc":"","contractorTotal":0,"contractorPct":0,"contractorGross":0,"arcTotal":0,"arcPct":0,"arcGross":0,"comment":""}],
+  "appBItems": [{"voNo":"","desc":"","contractorTotal":0,"contractorPct":0,"contractorGross":0,"arcTotal":0,"arcPct":0,"arcGross":0,"comment":""}],
+  "appCItems": [{"desc":"","totalDeduction":0,"pct":0,"grossValue":0}],
+  "appDItems": [{"itemNo":"","desc":"","unit":"","qty":0,"rate":0,"amount":0,"pp1":0,"pp2":0,"wirRef":"","materialAmt":0,"installationAmt":0,"certified":0,"certifiedMaterial":0,"certifiedInstallation":0}],
+  "appEItems": [{"itemNo":"","desc":"","lpoRef":"","ipa1":"","ipa2":"","ipa3":"","ipa4":"","ipa5":"","totalCertified":0}],
   "cvcOriginalContract": "number or KEEP_EXISTING",
   "cvcAppendixA": "number or KEEP_EXISTING",
   "cvcAppendixB": "number or KEEP_EXISTING",
   "cvcContra": "number or KEEP_EXISTING",
   "cvcContingency": "number or KEEP_EXISTING",
-  "cashFlowComments": "text or KEEP_EXISTING",
-  "cashFlowMatch": "Yes/No or KEEP_EXISTING",
-  "paymentIssueReasons": "text or KEEP_EXISTING",
-  "notes": "any notes or KEEP_EXISTING",
-  "preparedBy": "name or KEEP_EXISTING",
-  "preparedRole": "role or KEEP_EXISTING",
-  "approvedByPM": "name or KEEP_EXISTING",
-  "checkedByCostControl": "name or KEEP_EXISTING",
-  "projectControlsManager": "name or KEEP_EXISTING",
-  "commercialContractsManager": "name or KEEP_EXISTING"
+  "cashFlowComments": "string or KEEP_EXISTING",
+  "cashFlowMatch": "Yes | No | KEEP_EXISTING",
+  "paymentIssueReasons": "string or KEEP_EXISTING",
+  "notes": "string or KEEP_EXISTING",
+  "preparedBy": "string or KEEP_EXISTING",
+  "preparedRole": "string or KEEP_EXISTING",
+  "approvedByPM": "string or KEEP_EXISTING",
+  "checkedByCostControl": "string or KEEP_EXISTING",
+  "projectControlsManager": "string or KEEP_EXISTING",
+  "commercialContractsManager": "string or KEEP_EXISTING"
 }`;
 
     const userMessage = `I have uploaded ${files.length} document(s) for a payment certificate. Here is all the extracted content (OCR and text):
@@ -386,7 +554,7 @@ ${allContent.substring(0, 100000)}
 Current certificate data (update only fields you can extract from the documents above):
 ${JSON.stringify(certData, null, 2)}
 
-Extract ALL payment certificate fields and ALL line items. Apply the calculation rules in the system prompt. Return valid JSON only.`;
+Extract ALL payment certificate fields and ALL line items from Appendix A, B, C, D, and E. Return valid JSON only.`;
 
     try {
       const aiResponse = await callNvidia(apiKey, baseUrl, modelToUse, [
@@ -426,16 +594,21 @@ Extract ALL payment certificate fields and ALL line items. Apply the calculation
         });
       }
 
+      // ─── PHASE 3: Apply server-side calculations ───
+      processLog.push(`🔢 Applying Payment Schedule calculations...`);
+      extractedData = applyCalculations(extractedData);
+
       const fieldCount = Object.entries(extractedData)
-        .filter(([k, v]) => v !== "KEEP_EXISTING" && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0))
+        .filter(([, v]) => v !== "KEEP_EXISTING" && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0))
         .length;
 
       const appDItemCount = Array.isArray(extractedData.appDItems) ? extractedData.appDItems.length : 0;
       const appEItemCount = Array.isArray(extractedData.appEItems) ? extractedData.appEItems.length : 0;
 
       processLog.push(`✅ AI extracted ${fieldCount} certificate fields successfully`);
-      if (appDItemCount > 0) processLog.push(`📋 Appendix D: ${appDItemCount} line items`);
-      if (appEItemCount > 0) processLog.push(`📋 Appendix E: ${appEItemCount} work packages`);
+      if (appDItemCount > 0) processLog.push(`📋 Appendix D: ${appDItemCount} line items extracted`);
+      if (appEItemCount > 0) processLog.push(`📋 Appendix E: ${appEItemCount} work packages extracted`);
+      processLog.push(`✅ Computed: grossTotal, netTotal, vatAmount, totalDue — all columns`);
 
       return NextResponse.json({
         success: true,
