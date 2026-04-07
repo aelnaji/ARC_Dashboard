@@ -85,9 +85,9 @@ const INIT = {
     { desc: "", totalDeduction: "", pct: "0", grossValue: "" },
   ],
   appDItems: [
-    { itemNo: "1.0", desc: "Supply & Installation of Umbrella Shade 700Gsm PVC Fabric, Powder Coated GI Post Frame and all accessories for Park 18", unit: "Nos", qty: "2.00", rate: "5000.00", amount: "10000.00", pp1: "", pp2: "90", wirRef: "N/A", certified: "9000.00" },
-    { itemNo: "2.0", desc: "Supply & Installation of Umbrella Shade 700Gsm PVC Fabric, Powder Coated GI Post Frame and all accessories for Park 22", unit: "Nos", qty: "1.00", rate: "5000.00", amount: "5000.00", pp1: "", pp2: "90", wirRef: "N/A", certified: "4500.00" },
-    { itemNo: "3.0", desc: "Supply & Installation of Umbrella Shade 700Gsm PVC Fabric, Powder Coated GI Post Frame and all accessories for Park 30", unit: "Nos", qty: "2.00", rate: "5000.00", amount: "10000.00", pp1: "", pp2: "90", wirRef: "N/A", certified: "9000.00" },
+    { itemNo: "1.0", desc: "Supply & Installation of Umbrella Shade 700Gsm PVC Fabric, Powder Coated GI Post Frame and all accessories for Park 18", unit: "Nos", qty: "2.00", rate: "5000.00", amount: "10000.00", pp1: "", pp2: "90", wirRef: "N/A", certified: "9000.00", materialAmt: "", installationAmt: "", certifiedMaterial: "", certifiedInstallation: "" },
+    { itemNo: "2.0", desc: "Supply & Installation of Umbrella Shade 700Gsm PVC Fabric, Powder Coated GI Post Frame and all accessories for Park 22", unit: "Nos", qty: "1.00", rate: "5000.00", amount: "5000.00", pp1: "", pp2: "90", wirRef: "N/A", certified: "4500.00", materialAmt: "", installationAmt: "", certifiedMaterial: "", certifiedInstallation: "" },
+    { itemNo: "3.0", desc: "Supply & Installation of Umbrella Shade 700Gsm PVC Fabric, Powder Coated GI Post Frame and all accessories for Park 30", unit: "Nos", qty: "2.00", rate: "5000.00", amount: "10000.00", pp1: "", pp2: "90", wirRef: "N/A", certified: "9000.00", materialAmt: "", installationAmt: "", certifiedMaterial: "", certifiedInstallation: "" },
   ],
   appEItems: [
     { itemNo: "1.0", desc: "Supply & Installation of Umbrella Shade 700Gsm PVC Fabric, Powder Coated GI Post Frame and all accessories", lpoRef: "RCT24PORS08050", ipa1: "7500 (Advance, Nov-25)", ipa2: "15000 (Mar-26)", ipa3: "", ipa4: "", ipa5: "", totalCertified: "22500" },
@@ -156,7 +156,7 @@ const EMPTY_STATE = {
   appAItems: [{ desc: "", contractorTotal: "", contractorPct: "", contractorGross: "", arcTotal: "", arcPct: "", arcGross: "", comment: "" }],
   appBItems: [{ voNo: "", desc: "", contractorTotal: "", contractorPct: "0", contractorGross: "", arcTotal: "", arcPct: "0", arcGross: "", comment: "" }],
   appCItems: [{ desc: "", totalDeduction: "", pct: "0", grossValue: "" }],
-  appDItems: [{ itemNo: "", desc: "", unit: "", qty: "", rate: "", amount: "", pp1: "", pp2: "", wirRef: "", certified: "" }],
+  appDItems: [{ itemNo: "", desc: "", unit: "", qty: "", rate: "", amount: "", pp1: "", pp2: "", wirRef: "", certified: "", materialAmt: "", installationAmt: "", certifiedMaterial: "", certifiedInstallation: "" }],
   appEItems: [{ itemNo: "", desc: "", lpoRef: "", ipa1: "", ipa2: "", ipa3: "", ipa4: "", ipa5: "", totalCertified: "" }],
   preparedBy: "", preparedRole: "", approvedByPM: "", checkedByCostControl: "", projectControlsManager: "", commercialContractsManager: "",
   operationsDirector: { name: "", date: "", status: "Pending" },
@@ -317,7 +317,7 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
         fetch("/api/extract-cert", { method: "POST", body: formData })
           .then(r => r.json())
           .then(data => {
-            const hasAutoOcr = data.processLog?.some((log: string) => log.includes("Converted to") || log.includes("Converting"));
+            const hasAutoOcr = data.processLog?.some((log: string) => log.includes("Vision OCR complete") || log.includes("Converting"));
             if (!data.extractedData) {
               setExtractMsg({ type: "error", text: data.warning || data.error || "AI could not extract data." });
               setExtractLog(data.processLog || []);
@@ -397,7 +397,7 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
       const data = await res.json();
       if (!res.ok) { setExtractMsg({ type: "error", text: data.error || `Server error (${res.status})` }); setExtractLog(data.processLog || []); return; }
       if (!data.extractedData) { setExtractMsg({ type: "error", text: data.warning || data.error || "AI could not extract structured data from the documents." }); setExtractLog(data.processLog || []); return; }
-      const hasAutoOcr = data.processLog?.some((log: string) => log.includes("Converted to") || log.includes("Converting"));
+      const hasAutoOcr = data.processLog?.some((log: string) => log.includes("Vision OCR complete") || log.includes("Converting"));
       applyExtractedData(data.extractedData, data.processLog || [], processFiles.length);
       if (hasAutoOcr) setExtractMsg({ type: "success", text: `✅ Extracted data successfully. Scanned PDFs were automatically converted and OCR'd.` });
     } catch (err: unknown) {
@@ -831,6 +831,10 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
                   <th className="p-2 border border-gray-700 text-right text-yellow-300">PP2%</th>
                   <th className="p-2 border border-gray-700 text-center text-blue-300">WIR Ref</th>
                   <th className="p-2 border border-gray-700 text-right text-green-300">Certified</th>
+                  <th className="p-2 border border-gray-700 text-right text-gray-300">Material Amt</th>
+                  <th className="p-2 border border-gray-700 text-right text-gray-300">Installation Amt</th>
+                  <th className="p-2 border border-gray-700 text-right text-gray-300">Certified Material</th>
+                  <th className="p-2 border border-gray-700 text-right text-gray-300">Certified Installation</th>
                   <th className="p-1 border border-gray-700"></th>
                 </tr></thead>
                 <tbody>
@@ -846,18 +850,22 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
                       <td className="border border-gray-700 p-1"><input type="number" value={row.pp2} onChange={e => setArrObj("appDItems",i,"pp2",e.target.value)} className="w-12 bg-transparent text-right text-yellow-300 focus:outline-none focus:bg-gray-800 rounded px-1" /></td>
                       <td className="border border-gray-700 p-1"><input value={row.wirRef} onChange={e => setArrObj("appDItems",i,"wirRef",e.target.value)} className="w-16 bg-transparent text-center text-blue-300 focus:outline-none focus:bg-gray-800 rounded px-1" /></td>
                       <td className="border border-gray-700 p-1"><input type="number" value={row.certified} onChange={e => setArrObj("appDItems",i,"certified",e.target.value)} className="w-24 bg-transparent text-right text-green-400 font-bold focus:outline-none focus:bg-gray-800 rounded px-1" /></td>
+                      <td className="border border-gray-700 p-1"><input type="number" value={row.materialAmt} onChange={e => setArrObj("appDItems",i,"materialAmt",e.target.value)} className="w-20 bg-transparent text-right text-white focus:outline-none focus:bg-gray-800 rounded px-1" /></td>
+                      <td className="border border-gray-700 p-1"><input type="number" value={row.installationAmt} onChange={e => setArrObj("appDItems",i,"installationAmt",e.target.value)} className="w-20 bg-transparent text-right text-white focus:outline-none focus:bg-gray-800 rounded px-1" /></td>
+                      <td className="border border-gray-700 p-1"><input type="number" value={row.certifiedMaterial} onChange={e => setArrObj("appDItems",i,"certifiedMaterial",e.target.value)} className="w-20 bg-transparent text-right text-white focus:outline-none focus:bg-gray-800 rounded px-1" /></td>
+                      <td className="border border-gray-700 p-1"><input type="number" value={row.certifiedInstallation} onChange={e => setArrObj("appDItems",i,"certifiedInstallation",e.target.value)} className="w-20 bg-transparent text-right text-white focus:outline-none focus:bg-gray-800 rounded px-1" /></td>
                       <td className="border border-gray-700 p-1 text-center"><button onClick={() => removeRow("appDItems",i)} className="text-red-400">✕</button></td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot><tr className="bg-gray-800 font-bold">
-                  <td className="p-2 border border-gray-700 text-white" colSpan={9}>Total Amount Certified</td>
+                  <td className="p-2 border border-gray-700 text-white" colSpan={13}>Total Amount Certified</td>
                   <td className="p-2 border border-gray-700 text-right text-green-400 text-sm">{AED(appDTotal)}</td>
                   <td></td>
                 </tr></tfoot>
               </table>
             </div>
-            <button onClick={() => addRow("appDItems",{itemNo:"",desc:"",unit:"Nos",qty:"",rate:"",amount:"",pp1:"",pp2:"0",wirRef:"",certified:""})} className="text-xs bg-gray-800 hover:bg-gray-700 text-blue-400 border border-blue-800 px-3 py-1 rounded">+ Add Line Item</button>
+            <button onClick={() => addRow("appDItems",{itemNo:"",desc:"",unit:"Nos",qty:"",rate:"",amount:"",pp1:"",pp2:"0",wirRef:"",certified:"",materialAmt:"",installationAmt:"",certifiedMaterial:"",certifiedInstallation:""})} className="text-xs bg-gray-800 hover:bg-gray-700 text-blue-400 border border-blue-800 px-3 py-1 rounded">+ Add Line Item</button>
           </div>
         )}
 
@@ -1033,7 +1041,7 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
                     const isPdf = f.name.toLowerCase().endsWith(".pdf");
                     const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(f.name);
                     const converting = isPdf && extractLog.some(l => (l.includes("Scanned PDF") || l.includes("Converting")) && l.includes(f.name));
-                    const converted = isPdf && extractLog.some(l => l.includes("Converted to") && l.includes(f.name));
+                    const converted = isPdf && extractLog.some(l => l.includes("Vision OCR complete") && l.includes(f.name));
                     return (
                       <div key={f.id} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${converted ? "bg-blue-950/30 border-blue-800" : converting ? "bg-yellow-950/30 border-yellow-800" : "bg-gray-900 border-gray-700"}`}>
                         {getFileIcon(f.type)}
