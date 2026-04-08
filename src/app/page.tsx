@@ -22,6 +22,7 @@ import SupplierComparisonSection from "@/components/sections/SupplierComparisonS
 import AgentMonitorSection from "@/components/sections/AgentMonitorSection";
 import ProcessFlowsSection from "@/components/sections/ProcessFlowsSection";
 import SettingsSection from "@/components/sections/SettingsSection";
+import LogoutButton from "@/components/LogoutButton";
 
 const navItems: { key: Section; icon: typeof LayoutDashboard; label: string; desc: string }[] = [
   { key: "dashboard", icon: LayoutDashboard, label: "Dashboard Overview", desc: "Main dashboard" },
@@ -193,6 +194,8 @@ export default function CommandCentre() {
                   Online
                 </Badge>
               </div>
+              <div className="h-4 w-px bg-[oklch(0.25_0.005_260)]" />
+              <LogoutButton />
             </div>
           </div>
         </header>
