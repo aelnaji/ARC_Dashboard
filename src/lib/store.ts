@@ -32,6 +32,9 @@ export interface SavedCert {
 interface AppState {
   activeSection: Section;
   setActiveSection: (section: Section) => void;
+  // deep-link: set before navigating to payment-certs so the section auto-opens that cert
+  pendingCertId: string | null;
+  setPendingCertId: (id: string | null) => void;
   settings: AppSettings;
   updateSettings: (settings: Partial<AppSettings>) => void;
   savedCerts: SavedCert[];
@@ -53,6 +56,10 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       activeSection: "dashboard",
       setActiveSection: (section) => set({ activeSection: section }),
+
+      pendingCertId: null,
+      setPendingCertId: (id) => set({ pendingCertId: id }),
+
       settings: defaultSettings,
       updateSettings: (newSettings) =>
         set((state) => ({
@@ -91,6 +98,7 @@ export const useAppStore = create<AppState>()(
         activeSection: state.activeSection,
         settings: state.settings,
         savedCerts: state.savedCerts,
+        // do NOT persist pendingCertId — it's a one-shot navigation signal
       }),
     }
   )

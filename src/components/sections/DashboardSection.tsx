@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, CircleCheck, TriangleAlert,
   ArrowRight, Upload, RefreshCw, Building2, DollarSign,
   BarChart3, ShieldCheck, CheckCircle2, AlertCircle,
-  Loader2, Pencil,
+  Loader2, Pencil, XCircle,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -108,10 +108,10 @@ const quickActions = [
 ];
 
 const aiAgents = [
-  { name: "Payment Cert AI",    model: "Llama 3.1 405B",  status: "Active",  color: "emerald", uptime: "99.8%",  certs: 312 },
-  { name: "Supplier Analysis",  model: "Mixtral 8×22B",   status: "Active",  color: "sky",     uptime: "99.2%",  certs: 287 },
-  { name: "Document Validator", model: "Llama 3.2 Vision",status: "Standby", color: "amber",   uptime: "—",      certs: 189 },
-  { name: "VAT Checker",        model: "Nemotron 340B",   status: "Active",  color: "emerald", uptime: "100%",   certs: 312 },
+  { name: "Payment Cert AI",    model: "Llama 3.1 405B",  status: "Active",  color: "emerald", uptime: "99.8%" },
+  { name: "Supplier Analysis",  model: "Mixtral 8×22B",   status: "Active",  color: "sky",     uptime: "99.2%" },
+  { name: "Document Validator", model: "Llama 3.2 Vision",status: "Standby", color: "amber",   uptime: "—" },
+  { name: "VAT Checker",        model: "Nemotron 340B",   status: "Active",  color: "emerald", uptime: "100%" },
 ];
 
 const colorMap: Record<string, { bg: string; border: string; text: string; btnBg: string; btnHover: string; bar: string }> = {
@@ -161,7 +161,7 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
-// ─── Status helpers ───────────────────────────────────────────────────────────
+// ─── Status config — labels match real workflow ───────────────────────────────
 const STATUS_CFG = {
   completed: {
     badge: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
@@ -173,7 +173,7 @@ const STATUS_CFG = {
     badge: "bg-amber-500/20 text-amber-300 border-amber-500/30",
     icon: Loader2,
     iconCls: "text-amber-400 animate-spin",
-    label: "Generating…",
+    label: "Pending",
   },
   draft: {
     badge: "bg-blue-500/20 text-blue-300 border-blue-500/30",
@@ -183,15 +183,15 @@ const STATUS_CFG = {
   },
   failed: {
     badge: "bg-red-500/20 text-red-300 border-red-500/30",
-    icon: AlertCircle,
+    icon: XCircle,
     iconCls: "text-red-400",
-    label: "Failed",
+    label: "Rejected",
   },
 } as const;
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function DashboardSection() {
-  const { setActiveSection, savedCerts } = useAppStore();
+  const { setActiveSection, setPendingCertId, savedCerts } = useAppStore();
   const [visibleCount, setVisibleCount] = useState(6);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState("");
@@ -212,7 +212,12 @@ export default function DashboardSection() {
     setTimeout(() => setRefreshing(false), 1200);
   };
 
-  // Show at most 8 certs in the dashboard log
+  // Navigate to payment-certs and deep-link to the specific cert
+  const handleCertClick = (certId: string) => {
+    setPendingCertId(certId);
+    setActiveSection("payment-certs");
+  };
+
   const recentCerts = savedCerts.slice(0, 8);
 
   return (
@@ -257,13 +262,9 @@ export default function DashboardSection() {
                       <Icon className={`size-4 ${c.text}`} />
                     </div>
                     <div className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                      card.up
-                        ? "bg-emerald-500/10 text-emerald-400"
-                        : "bg-red-500/10 text-red-400"
+                      card.up ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
                     }`}>
-                      {card.up
-                        ? <TrendingUp className="size-2.5" />
-                        : <TrendingDown className="size-2.5" />}
+                      {card.up ? <TrendingUp className="size-2.5" /> : <TrendingDown className="size-2.5" />}
                       {card.trend}
                     </div>
                   </div>
@@ -376,15 +377,16 @@ export default function DashboardSection() {
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.04, duration: 0.25 }}
-                        className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-4 items-center px-3 py-2.5 rounded-lg bg-[oklch(0.14_0.005_260)] hover:bg-[oklch(0.19_0.005_260)] transition-colors cursor-pointer"
-                        onClick={() => setActiveSection("payment-certs")}
+                        className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-4 items-center px-3 py-2.5 rounded-lg bg-[oklch(0.14_0.005_260)] hover:bg-[oklch(0.19_0.005_260)] transition-colors cursor-pointer group"
+                        onClick={() => handleCertClick(cert.id)}
+                        title={`Open ${cert.certNumber || cert.supplier}`}
                       >
-                        {/* Status icon */}
                         <StatusIcon className={`size-3.5 shrink-0 ${cfg.iconCls}`} />
 
-                        {/* Supplier + PO */}
                         <div className="min-w-0">
-                          <p className="text-xs text-white font-medium truncate">{cert.supplier || "—"}</p>
+                          <p className="text-xs text-white font-medium truncate group-hover:text-amber-300 transition-colors">
+                            {cert.supplier || "—"}
+                          </p>
                           <p className="text-[10px] text-[oklch(0.5_0.01_260)] truncate">
                             {cert.poNumber || "No PO"}
                             {cert.updatedAt && (
@@ -397,17 +399,14 @@ export default function DashboardSection() {
                           </p>
                         </div>
 
-                        {/* Cert number */}
                         <span className="text-[10px] text-[oklch(0.55_0.01_260)] hidden sm:block text-right whitespace-nowrap">
                           {cert.certNumber || "—"}
                         </span>
 
-                        {/* Amount */}
                         <span className="text-xs text-white font-semibold text-right whitespace-nowrap">
                           {cert.amount && cert.amount !== "Calculating..." ? cert.amount : "—"}
                         </span>
 
-                        {/* Status badge */}
                         <Badge className={`text-[9px] whitespace-nowrap ${cfg.badge}`}>
                           {cfg.label}
                         </Badge>
@@ -489,7 +488,7 @@ export default function DashboardSection() {
                 return (
                   <button key={action.label} onClick={() => setActiveSection(action.section)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg ${c.bg} border ${c.border} hover:opacity-80 transition-all text-left group`}>
-                    <div className={`p-1.5 rounded-md bg-[oklch(0.13_0.005_260)]`}>
+                    <div className="p-1.5 rounded-md bg-[oklch(0.13_0.005_260)]">
                       <Icon className={`size-3.5 ${c.text}`} />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -522,13 +521,9 @@ export default function DashboardSection() {
                       isActive ? `${c.bg} ${c.border}` : "bg-[oklch(0.14_0.005_260)] border-[oklch(0.22_0.005_260)]"
                     }`}>
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        isActive ? `${c.bar} animate-pulse` : "bg-[oklch(0.4_0.01_260)]"
-                      }`} />
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? `${c.bar} animate-pulse` : "bg-[oklch(0.4_0.01_260)]"}`} />
                       <div className="min-w-0">
-                        <p className={`text-xs font-medium truncate ${
-                          isActive ? c.text : "text-[oklch(0.6_0.01_260)]"
-                        }`}>{agent.name}</p>
+                        <p className={`text-xs font-medium truncate ${isActive ? c.text : "text-[oklch(0.6_0.01_260)]"}`}>{agent.name}</p>
                         <p className="text-[9px] text-[oklch(0.4_0.01_260)] truncate">{agent.model}</p>
                       </div>
                     </div>
@@ -537,9 +532,7 @@ export default function DashboardSection() {
                         <span className="text-[9px] text-[oklch(0.45_0.01_260)]">{agent.uptime}</span>
                       )}
                       <Badge className={`text-[9px] ${
-                        isActive
-                          ? `${c.bg} ${c.text} ${c.border}`
-                          : "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                        isActive ? `${c.bg} ${c.text} ${c.border}` : "bg-amber-500/20 text-amber-300 border-amber-500/30"
                       }`}>{agent.status}</Badge>
                     </div>
                   </motion.div>
