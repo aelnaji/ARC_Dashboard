@@ -6,7 +6,8 @@ import {
   FileText, Clock, Bot, Users, Activity, Zap, Plus,
   TrendingUp, TrendingDown, CircleCheck, TriangleAlert,
   ArrowRight, Upload, RefreshCw, Building2, DollarSign,
-  BarChart3, ShieldCheck,
+  BarChart3, ShieldCheck, CheckCircle2, AlertCircle,
+  Loader2, Pencil,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -17,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppStore } from "@/lib/store";
 
-// ─── Data ────────────────────────────────────────────────────────────────────
+// ─── Static Data ─────────────────────────────────────────────────────────────
 
 const kpiCards = [
   {
@@ -62,7 +63,6 @@ const kpiCards = [
   },
 ];
 
-// Supplier quote comparison trend — last 6 months
 const supplierTrendData = [
   { month: "Nov", "Al Fardan EM": 4.2,  "Gulf Piling":  3.8, "National Crane": 5.1, "Emirates Elect": 3.4 },
   { month: "Dec", "Al Fardan EM": 4.5,  "Gulf Piling":  3.6, "National Crane": 5.3, "Emirates Elect": 3.6 },
@@ -79,7 +79,6 @@ const SUPPLIER_LINES = [
   { key: "Emirates Elect",  color: "#34d399" },
 ];
 
-// Projects
 const projects = [
   { name: "MBZ Package 05 — Civil Works",       contract: "AED 142.0M", certified: "AED 94.3M",  pct: 66, color: "amber" },
   { name: "Abu Dhabi Ring Road — Drainage",     contract: "AED 87.5M",  certified: "AED 52.1M",  pct: 60, color: "sky" },
@@ -123,7 +122,7 @@ const colorMap: Record<string, { bg: string; border: string; text: string; btnBg
   purple: { bg: "bg-purple-500/10", border: "border-purple-500/20", text: "text-purple-400", btnBg: "bg-purple-600", btnHover: "hover:bg-purple-500", bar: "bg-purple-400" },
 };
 
-// ─── Sparkline component ──────────────────────────────────────────────────────
+// ─── Sparkline ────────────────────────────────────────────────────────────────
 function Sparkline({ data, color }: { data: number[]; color: string }) {
   const max = Math.max(...data);
   const min = Math.min(...data);
@@ -162,9 +161,37 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
+// ─── Status helpers ───────────────────────────────────────────────────────────
+const STATUS_CFG = {
+  completed: {
+    badge: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    icon: CheckCircle2,
+    iconCls: "text-emerald-400",
+    label: "Approved",
+  },
+  generating: {
+    badge: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    icon: Loader2,
+    iconCls: "text-amber-400 animate-spin",
+    label: "Generating…",
+  },
+  draft: {
+    badge: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    icon: Pencil,
+    iconCls: "text-blue-400",
+    label: "Draft",
+  },
+  failed: {
+    badge: "bg-red-500/20 text-red-300 border-red-500/30",
+    icon: AlertCircle,
+    iconCls: "text-red-400",
+    label: "Failed",
+  },
+} as const;
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function DashboardSection() {
-  const setActiveSection = useAppStore((s) => s.setActiveSection);
+  const { setActiveSection, savedCerts } = useAppStore();
   const [visibleCount, setVisibleCount] = useState(6);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState("");
@@ -184,6 +211,9 @@ export default function DashboardSection() {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 1200);
   };
+
+  // Show at most 8 certs in the dashboard log
+  const recentCerts = savedCerts.slice(0, 8);
 
   return (
     <div className="space-y-6">
@@ -288,6 +318,116 @@ export default function DashboardSection() {
                 );
               })}
             </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* ── Payment Certificates Log (LIVE from store) ── */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.42, duration: 0.4 }}>
+        <Card className="py-0 shadow-sm bg-[oklch(0.17_0.005_260)] border-[oklch(0.25_0.005_260)]">
+          <CardHeader className="pb-3 pt-4 px-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="font-semibold text-sm text-white flex items-center gap-2">
+                <FileText className="size-4 text-amber-400" /> Payment Certificates Log
+                <Badge className="text-[10px] text-amber-400 border-amber-500/30 bg-amber-500/5">
+                  {savedCerts.length} total
+                </Badge>
+              </CardTitle>
+              <Button
+                onClick={() => setActiveSection("payment-certs")}
+                className="h-7 text-[10px] gap-1.5 bg-amber-600 hover:bg-amber-500 text-white px-3"
+              >
+                <ArrowRight className="size-3" /> View All
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0 pb-4 px-4">
+            {savedCerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <FileText className="size-9 text-[oklch(0.35_0.01_260)] mb-3" />
+                <p className="text-sm text-[oklch(0.55_0.01_260)]">No payment certificates yet.</p>
+                <p className="text-xs text-[oklch(0.4_0.01_260)] mt-1">
+                  Go to Payment Certificates to generate or create one.
+                </p>
+                <Button
+                  onClick={() => setActiveSection("payment-certs")}
+                  className="mt-4 h-8 text-[10px] gap-1.5 bg-amber-600 hover:bg-amber-500 text-white px-3"
+                >
+                  <Plus className="size-3" /> New Certificate
+                </Button>
+              </div>
+            ) : (
+              <>
+                {/* Table header */}
+                <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-4 items-center px-3 py-1.5 mb-1 text-[9px] uppercase tracking-widest text-[oklch(0.45_0.01_260)]">
+                  <span className="w-4" />
+                  <span>Supplier / PO</span>
+                  <span className="text-right hidden sm:block">Cert No.</span>
+                  <span className="text-right">Amount</span>
+                  <span className="text-right">Status</span>
+                </div>
+                <div className="space-y-1.5">
+                  {recentCerts.map((cert, i) => {
+                    const cfg = STATUS_CFG[cert.status] ?? STATUS_CFG.draft;
+                    const StatusIcon = cfg.icon;
+                    return (
+                      <motion.div
+                        key={cert.id}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.04, duration: 0.25 }}
+                        className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-4 items-center px-3 py-2.5 rounded-lg bg-[oklch(0.14_0.005_260)] hover:bg-[oklch(0.19_0.005_260)] transition-colors cursor-pointer"
+                        onClick={() => setActiveSection("payment-certs")}
+                      >
+                        {/* Status icon */}
+                        <StatusIcon className={`size-3.5 shrink-0 ${cfg.iconCls}`} />
+
+                        {/* Supplier + PO */}
+                        <div className="min-w-0">
+                          <p className="text-xs text-white font-medium truncate">{cert.supplier || "—"}</p>
+                          <p className="text-[10px] text-[oklch(0.5_0.01_260)] truncate">
+                            {cert.poNumber || "No PO"}
+                            {cert.updatedAt && (
+                              <span className="ml-2 text-[oklch(0.4_0.01_260)]">
+                                · {new Date(cert.updatedAt).toLocaleDateString("en-AE", {
+                                  day: "2-digit", month: "short", year: "numeric",
+                                })}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+
+                        {/* Cert number */}
+                        <span className="text-[10px] text-[oklch(0.55_0.01_260)] hidden sm:block text-right whitespace-nowrap">
+                          {cert.certNumber || "—"}
+                        </span>
+
+                        {/* Amount */}
+                        <span className="text-xs text-white font-semibold text-right whitespace-nowrap">
+                          {cert.amount && cert.amount !== "Calculating..." ? cert.amount : "—"}
+                        </span>
+
+                        {/* Status badge */}
+                        <Badge className={`text-[9px] whitespace-nowrap ${cfg.badge}`}>
+                          {cfg.label}
+                        </Badge>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                {savedCerts.length > 8 && (
+                  <div className="flex justify-end mt-3 pt-3 border-t border-[oklch(0.22_0.005_260)]">
+                    <button
+                      onClick={() => setActiveSection("payment-certs")}
+                      className="text-[10px] text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1"
+                    >
+                      +{savedCerts.length - 8} more certificates <ArrowRight className="size-3" />
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       </motion.div>
