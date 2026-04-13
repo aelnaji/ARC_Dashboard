@@ -57,6 +57,19 @@ const STATUS_BADGE: Record<SavedCert["status"], { cls: string; label: string }> 
   failed:     { cls: "bg-red-500/20 text-red-300 border-red-500/30",          label: "Rejected" },
 };
 
+// Derive cert store status from approval signatory objects inside formData
+function deriveStatus(formData: Record<string, unknown>): SavedCert["status"] {
+  const signatories = ["operationsDirector", "internalAudit", "ceo"] as const;
+  const statuses = signatories.map((key) => {
+    const sig = formData[key] as { status?: string } | undefined;
+    return sig?.status ?? "Pending";
+  });
+  if (statuses.every((s) => s === "Approved")) return "completed";
+  if (statuses.some((s) => s === "Rejected")) return "failed";
+  if (statuses.some((s) => s === "Approved")) return "generating"; // partially approved = still pending
+  return "draft";
+}
+
 export default function PaymentCertsSection() {
   const { settings, savedCerts, createCert, updateCert, deleteCert, pendingCertId, setPendingCertId } = useAppStore();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -89,7 +102,6 @@ export default function PaymentCertsSection() {
       setFormKey((k) => k + 1);
       setViewMode("form");
     }
-    // Clear the pending id so navigating back and forth doesn't re-trigger
     setPendingCertId(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -231,11 +243,17 @@ export default function PaymentCertsSection() {
     setViewMode("form");
   };
 
+  // ── Save handler: persists full formData (incl. signatory objects) and derives status from approvals
   const handleSaveFromForm = (formData: Record<string, unknown>) => {
     const supplier = String(formData.vendorName || formData.supplier || "Draft");
-    const poNum = String(formData.scOrderNo || formData.poNumber || "");
-    const certNo = formData.certNo ? `IPA-${formData.certNo}` : `IPA-${String(savedCerts.length + 1).padStart(2, "0")}`;
-    const amount = formData.contractValue ? `AED ${formData.contractValue}` : "AED —";
+    const poNum    = String(formData.scOrderNo  || formData.poNumber  || "");
+    const certNo   = formData.certNo
+      ? `IPA-${formData.certNo}`
+      : `IPA-${String(savedCerts.length + 1).padStart(2, "0")}`;
+    const amount   = formData.contractValue ? `AED ${formData.contractValue}` : "AED —";
+
+    // Derive the correct status from signatory approval state
+    const certStatus = deriveStatus(formData);
 
     if (activeCertId) {
       updateCert(activeCertId, {
@@ -243,8 +261,8 @@ export default function PaymentCertsSection() {
         poNumber: poNum,
         certNumber: certNo,
         amount,
-        status: "completed",
-        formData,
+        status: certStatus,
+        formData,          // ← full snapshot including operationsDirector / internalAudit / ceo
       });
     } else {
       const newId = createClientId();
@@ -255,8 +273,8 @@ export default function PaymentCertsSection() {
         poNumber: poNum,
         certNumber: certNo,
         amount,
-        status: "completed",
-        formData,
+        status: certStatus,
+        formData,          // ← full snapshot
       });
     }
   };
@@ -400,6 +418,18 @@ export default function PaymentCertsSection() {
                     <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
                       {savedCerts.map((cert, i) => {
                         const sb = STATUS_BADGE[cert.status] ?? STATUS_BADGE.draft;
+
+                        // Show live approval progress from persisted formData
+                        const sigs = ["operationsDirector", "internalAudit", "ceo"] as const;
+                        const approvedCount = sigs.filter((k) => {
+                          const s = cert.formData?.[k] as { status?: string } | undefined;
+                          return s?.status === "Approved";
+                        }).length;
+                        const rejectedCount = sigs.filter((k) => {
+                          const s = cert.formData?.[k] as { status?: string } | undefined;
+                          return s?.status === "Rejected";
+                        }).length;
+
                         return (
                           <motion.div
                             key={cert.id}
@@ -422,6 +452,18 @@ export default function PaymentCertsSection() {
                                   <p className="text-[10px] text-[oklch(0.4_0.01_260)]">
                                     {new Date(cert.updatedAt).toLocaleDateString("en-AE", { day: "2-digit", month: "short", year: "numeric" })}
                                   </p>
+                                  {/* Live approval progress pill */}
+                                  {cert.formData && (
+                                    <p className={`text-[10px] mt-0.5 font-medium ${
+                                      approvedCount === 3 ? "text-emerald-400" :
+                                      rejectedCount > 0  ? "text-red-400"     :
+                                      approvedCount > 0  ? "text-amber-400"   :
+                                      "text-[oklch(0.45_0.01_260)]"
+                                    }`}>
+                                      ✓ {approvedCount}/3 approved
+                                      {rejectedCount > 0 && ` · ${rejectedCount} rejected`}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
