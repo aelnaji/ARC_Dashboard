@@ -1,26 +1,22 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
+import "@/styles/arc-themes.css";
 import { Toaster } from "@/components/ui/toaster";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "ARC Command Centre",
-  description: "Al Ryum Contracting & General Transport LLC — Command Centre Dashboard. AI-powered payment certificate management, supplier comparison, and document processing for construction operations in Abu Dhabi, UAE.",
+  description:
+    "Al Ryum Contracting & General Transport LLC \u2014 Command Centre Dashboard. AI-powered payment certificate management, supplier comparison, and document processing for construction operations in Abu Dhabi, UAE.",
   keywords: ["ARC", "Al Ryum", "Command Centre", "Payment Certificate", "Construction", "Abu Dhabi", "UAE"],
   authors: [{ name: "Al Ryum Contracting & General Transport LLC" }],
-  icons: {
-    icon: "/arc-logo.png",
-  },
+  icons: { icon: "/arc-logo.png" },
 };
 
 export default function RootLayout({
@@ -29,9 +25,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="theme-arc-green" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${inter.variable} font-sans antialiased`}
+        style={{ background: "var(--arc-bg-page)", color: "var(--arc-text)" }}
       >
         {children}
         <Toaster />
