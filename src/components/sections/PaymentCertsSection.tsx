@@ -315,8 +315,8 @@ export default function PaymentCertsSection() {
         </motion.div>
       ) : (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* New Certificate Quick-Gen */}
+          <div className="grid grid-cols-1 gap-6">
+            {/* Generate Payment Certificate card removed */}               {false && (<>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -377,12 +377,12 @@ export default function PaymentCertsSection() {
               </Card>
             </motion.div>
 
-            {/* Certificate List */}
+            </>)}               {/* Certificate List */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.4 }}
-              className="lg:col-span-2"
+              className="w-full"
             >
               <Card className="py-6 shadow-sm bg-[oklch(0.17_0.005_260)] border-[oklch(0.25_0.005_260)]">
                 <CardHeader className="pb-3">
