@@ -16,7 +16,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { key: "dashboard",            icon: LayoutDashboard, label: "Overview" },
-  { key: "payment-certs",        icon: FileText,         label: "Finance",       badge: { text: "9", type: "amber" } },
+  { key: "payment-certs",        icon: FileText,         label: "Project Management",       badge: { text: "9", type: "amber" } },
   { key: "supplier-comparison",  icon: Package,          label: "Procurement",   badge: { text: "4", type: "amber" } },
   { key: "agent-monitor",        icon: Bot,              label: "AI Hub",        badge: { text: "1", type: "red" } },
   { key: "process-flows",        icon: GitBranch,        label: "Process Flows" },
