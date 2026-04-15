@@ -22,7 +22,7 @@ export interface SavedCert {
   poNumber: string;
   certNumber: string;
   amount: string;
-  status: "draft" | "generating" | "completed" | "failed";
+  status: "draft" | "generating" | "completed" | "failed" | "on-hold";
   aiResponse?: string;
   createdAt: string;
   updatedAt: string;
