@@ -116,9 +116,9 @@ const INIT = {
   checkedByCostControl: "",
   projectControlsManager: "",
   commercialContractsManager: "",
-  operationsDirector: { name: "", date: "", status: "Pending" },
-  internalAudit: { name: "", date: "", status: "Pending" },
-  ceo: { name: "Rafael", date: "", status: "Pending" },
+  operationsDirector: { name: "", date: "", status: "Pending", reason: "" },
+  internalAudit: { name: "", date: "", status: "Pending", reason: "" },
+  ceo: { name: "Rafael", date: "", status: "Pending", reason: "" },
 };
 
 function Field({ label, value, onChange, type = "text", className = "", readOnly = false, small = false }: {
@@ -177,9 +177,9 @@ const EMPTY_STATE = {
   appDItems: [{ itemNo: "", desc: "", unit: "", qty: "", rate: "", amount: "", pp1: "", pp2: "", wirRef: "", certified: "", materialAmt: "", installationAmt: "", certifiedMaterial: "", certifiedInstallation: "" }],
   appEItems: [{ itemNo: "", desc: "", lpoRef: "", ipa1: "", ipa2: "", ipa3: "", ipa4: "", ipa5: "", totalCertified: "" }],
   preparedBy: "", preparedRole: "", approvedByPM: "", checkedByCostControl: "", projectControlsManager: "", commercialContractsManager: "",
-  operationsDirector: { name: "", date: "", status: "Pending" },
-  internalAudit: { name: "", date: "", status: "Pending" },
-  ceo: { name: "", date: "", status: "Pending" },
+  operationsDirector: { name: "", date: "", status: "Pending", reason: "" },
+  internalAudit: { name: "", date: "", status: "Pending", reason: "" },
+  ceo: { name: "", date: "", status: "Pending", reason: "" },
 };
 
 function formatFileSize(bytes: number): string {
@@ -1007,7 +1007,7 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-semibold text-white text-sm">{label}</span>
                         <div className="flex gap-1">
-                          {["Pending","Approved","Rejected"].map(s => (
+                          {["Pending","Approved","Rejected","On Hold"].map(s => (
                             <button key={s} onClick={() => setD(p => ({...p, [key]: {...(p as Record<string, {name:string;date:string;status:string}>)[key], status: s}}))}
                               className={`text-xs px-2 py-1 rounded border transition-colors ${
                                 a.status === s
@@ -1015,14 +1015,14 @@ export default function PaymentCertForm({ extractedData, initialData, onSave }: 
                                   : s==="Rejected" ? "bg-red-700 border-red-500 text-white"
                                   : "bg-gray-600 border-gray-400 text-white"
                                   : "bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200"}`}>
-                              {s==="Approved"?"✓ Approve":s==="Rejected"?"✕ Reject":"⏳ Pending"}
+                              {s==="Approved"?"✓ Approve":s==="Rejected"?"✕ Reject":s==="On Hold"?"⏸ On Hold":"⏳ Pending"}
                             </button>
                           ))}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <Field label="Signatory Name" value={a.name} onChange={v => setD(p => ({...p, [key]:{...(p as Record<string, {name:string;date:string;status:string}>)[key], name:v}}))} small />
-                        <Field label="Date" value={a.date} onChange={v => setD(p => ({...p, [key]:{...(p as Record<string, {name:string;date:string;status:string}>)[key], date:v}}))} small />
+                        <Field label="Signatory Name" value={a.name} onChange={v => setD(p => ({...p, [key]:{...(p as Record<string, {name:string;date:string;status:string;reason:string}>)[key], name:v}}))} small />
+                        <Field label="Date" value={a.date} onChange={v => setD(p => ({...p, [key]:{...(p as Record<string, {name:string;date:string;status:string;reason:string}>)[key], date:v}}))} small />
                       </div>
                     </div>
                   );
